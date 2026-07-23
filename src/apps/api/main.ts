@@ -1,4 +1,5 @@
 import { buildApp } from './app.js';
+import { PostgresCatalog } from '../../modules/catalog/infrastructure/postgres-catalog.js';
 import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
 import { LiveHealthDependencies } from '../../shared/health/live-dependencies.js';
@@ -8,7 +9,11 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const database = createDatabasePool(config);
   const redis = createRedisClient(config);
-  const app = buildApp({ config, dependencies: new LiveHealthDependencies(database, redis) });
+  const app = buildApp({
+    config,
+    dependencies: new LiveHealthDependencies(database, redis),
+    catalog: new PostgresCatalog(database),
+  });
   let shuttingDown = false;
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {

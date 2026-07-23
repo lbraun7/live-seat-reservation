@@ -209,14 +209,14 @@ Um comando sobe a infraestrutura e a aplicação; CI e health checks passam em a
 
 ### Tarefas
 
-- [ ] Criar tabelas `events`, `seat_sections` e `seats`.
-- [ ] Garantir unicidade de `event_id + seat_label`.
-- [ ] Criar seed de um evento com milhares de assentos.
-- [ ] Implementar consulta do evento.
-- [ ] Implementar snapshot do mapa de assentos.
-- [ ] Agrupar ou paginar assentos por seção.
-- [ ] Adicionar campo monotônico de versão ao estado publicado.
-- [ ] Validar e serializar requests e responses por schema.
+- [x] Criar tabelas `events`, `seat_sections` e `seats`.
+- [x] Garantir unicidade de `event_id + seat_label`.
+- [x] Criar seed de um evento com milhares de assentos.
+- [x] Implementar consulta do evento.
+- [x] Implementar snapshot do mapa de assentos.
+- [x] Agrupar ou paginar assentos por seção.
+- [x] Adicionar campo monotônico de versão ao estado publicado.
+- [x] Validar e serializar requests e responses por schema.
 
 ### Critério de aceite
 

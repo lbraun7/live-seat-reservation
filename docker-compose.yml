@@ -11,7 +11,12 @@ services:
       DATABASE_CONNECTION_TIMEOUT_MS: 2000
       REDIS_CONNECTION_TIMEOUT_MS: 2000
       SHUTDOWN_TIMEOUT_MS: 10000
-    command: ['sh', '-c', 'node dist/shared/database/migrate.js && node dist/apps/api/main.js']
+    command:
+      [
+        'sh',
+        '-c',
+        'node dist/shared/database/migrate.js && node dist/apps/seed/main.js && node dist/apps/api/main.js',
+      ]
     ports:
       - '3000:3000'
     depends_on:

@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { Type } from '@sinclair/typebox';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import type { Catalog } from '../../modules/catalog/domain/catalog.js';
+import { registerCatalogRoutes } from '../../modules/catalog/transport/http.js';
 import type { AppConfig } from '../../shared/config/config.js';
 import type { HealthDependencies } from '../../shared/health/dependencies.js';
 
@@ -18,9 +20,10 @@ const ReadinessResponse = Type.Object({
 export interface BuildAppOptions {
   config: AppConfig;
   dependencies: HealthDependencies;
+  catalog?: Catalog;
 }
 
-export function buildApp({ config, dependencies }: BuildAppOptions): FastifyInstance {
+export function buildApp({ config, dependencies, catalog }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: { level: config.logLevel },
     requestIdHeader: 'x-correlation-id',
@@ -51,6 +54,8 @@ export function buildApp({ config, dependencies }: BuildAppOptions): FastifyInst
       });
     },
   });
+
+  if (catalog) registerCatalogRoutes(app, catalog);
 
   app.addHook('onClose', async () => dependencies.close());
   return app;

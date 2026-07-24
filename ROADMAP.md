@@ -228,26 +228,26 @@ Um cliente consegue consultar um snapshot consistente e versionado do mapa de as
 
 ### Tarefas
 
-- [ ] Criar tabelas `holds`, `orders` e `order_items`.
-- [ ] Modelar constraints que impeçam venda duplicada.
-- [ ] Implementar criação de hold com atualização condicional.
-- [ ] Calcular expiração usando o relógio do PostgreSQL.
-- [ ] Implementar consulta, cancelamento e confirmação de hold.
-- [ ] Verificar ownership em todas as transições.
-- [ ] Implementar retry limitado para deadlock e erro de serialização.
-- [ ] Criar códigos de erro de domínio estáveis.
-- [ ] Implementar tabela e middleware de idempotência.
-- [ ] Persistir hash do request e resultado da operação.
+- [x] Criar tabelas `holds`, `orders` e `order_items`.
+- [x] Modelar constraints que impeçam venda duplicada.
+- [x] Implementar criação de hold com atualização condicional.
+- [x] Calcular expiração usando o relógio do PostgreSQL.
+- [x] Implementar consulta, cancelamento e confirmação de hold.
+- [x] Verificar ownership em todas as transições.
+- [x] Implementar retry limitado para deadlock e erro de serialização.
+- [x] Criar códigos de erro de domínio estáveis.
+- [x] Implementar tabela e middleware de idempotência.
+- [x] Persistir hash do request e resultado da operação.
 
 ### Testes obrigatórios
 
-- [ ] Cem ou mais requisições disputam o mesmo assento e exatamente uma vence.
-- [ ] Repetir uma request retorna o mesmo hold.
-- [ ] Mesma chave com payload diferente retorna conflito.
-- [ ] Hold expirado não pode ser confirmado.
-- [ ] Um usuário não opera o hold de outro.
-- [ ] Confirmação e expiração concorrentes preservam as invariantes.
-- [ ] Um assento confirmado jamais volta para disponível.
+- [x] Cem ou mais requisições disputam o mesmo assento e exatamente uma vence.
+- [x] Repetir uma request retorna o mesmo hold.
+- [x] Mesma chave com payload diferente retorna conflito.
+- [x] Hold expirado não pode ser confirmado.
+- [x] Um usuário não opera o hold de outro.
+- [x] Confirmação e expiração concorrentes preservam as invariantes.
+- [x] Um assento confirmado jamais volta para disponível.
 
 ### Critério de aceite
 

@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:integration": "vitest run tests/integration",
     "test:watch": "vitest",
     "migrate": "tsx src/shared/database/migrate.ts",
     "seed": "tsx src/apps/seed/main.ts",

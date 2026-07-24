@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { PostgresCatalog } from '../../modules/catalog/infrastructure/postgres-catalog.js';
+import { PostgresReservations } from '../../modules/reservations/infrastructure/postgres-reservations.js';
 import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
 import { LiveHealthDependencies } from '../../shared/health/live-dependencies.js';
@@ -13,6 +14,7 @@ async function main(): Promise<void> {
     config,
     dependencies: new LiveHealthDependencies(database, redis),
     catalog: new PostgresCatalog(database),
+    reservations: new PostgresReservations(database),
   });
   let shuttingDown = false;
 

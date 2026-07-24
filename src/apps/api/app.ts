@@ -5,6 +5,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import type { Catalog } from '../../modules/catalog/domain/catalog.js';
 import { registerCatalogRoutes } from '../../modules/catalog/transport/http.js';
+import type { Reservations } from '../../modules/reservations/domain/reservations.js';
+import { registerReservationRoutes } from '../../modules/reservations/transport/http.js';
 import type { AppConfig } from '../../shared/config/config.js';
 import type { HealthDependencies } from '../../shared/health/dependencies.js';
 
@@ -21,9 +23,15 @@ export interface BuildAppOptions {
   config: AppConfig;
   dependencies: HealthDependencies;
   catalog?: Catalog;
+  reservations?: Reservations;
 }
 
-export function buildApp({ config, dependencies, catalog }: BuildAppOptions): FastifyInstance {
+export function buildApp({
+  config,
+  dependencies,
+  catalog,
+  reservations,
+}: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: { level: config.logLevel },
     requestIdHeader: 'x-correlation-id',
@@ -56,6 +64,7 @@ export function buildApp({ config, dependencies, catalog }: BuildAppOptions): Fa
   });
 
   if (catalog) registerCatalogRoutes(app, catalog);
+  if (reservations) registerReservationRoutes(app, reservations);
 
   app.addHook('onClose', async () => dependencies.close());
   return app;

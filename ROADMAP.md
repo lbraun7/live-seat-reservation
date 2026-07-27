@@ -259,22 +259,22 @@ Os testes comprovam zero overselling usando apenas o PostgreSQL como mecanismo d
 
 ### Tarefas
 
-- [ ] Configurar BullMQ.
-- [ ] Agendar delayed job na criação do hold.
-- [ ] Implementar worker de expiração idempotente.
-- [ ] Implementar retries com backoff e jitter.
-- [ ] Criar estratégia para jobs definitivamente falhos.
-- [ ] Implementar reconciliador periódico de holds vencidos.
-- [ ] Processar lotes com `FOR UPDATE SKIP LOCKED`.
-- [ ] Permitir várias instâncias do reconciliador.
-- [ ] Medir atraso entre expiração prevista e efetiva.
+- [x] Configurar BullMQ.
+- [x] Agendar delayed job na criação do hold.
+- [x] Implementar worker de expiração idempotente.
+- [x] Implementar retries com backoff e jitter.
+- [x] Criar estratégia para jobs definitivamente falhos.
+- [x] Implementar reconciliador periódico de holds vencidos.
+- [x] Processar lotes com `FOR UPDATE SKIP LOCKED`.
+- [x] Permitir várias instâncias do reconciliador.
+- [x] Medir atraso entre expiração prevista e efetiva.
 
 ### Testes obrigatórios
 
-- [ ] Executar duas vezes o mesmo job não causa efeito adicional.
-- [ ] Worker reiniciado recupera holds vencidos.
-- [ ] Reconciliador corrige um delayed job perdido ou atrasado.
-- [ ] Job antigo não libera um hold ou pedido mais recente.
+- [x] Executar duas vezes o mesmo job não causa efeito adicional.
+- [x] Worker reiniciado recupera holds vencidos.
+- [x] Reconciliador corrige um delayed job perdido ou atrasado.
+- [x] Job antigo não libera um hold ou pedido mais recente.
 
 ### Critério de aceite
 

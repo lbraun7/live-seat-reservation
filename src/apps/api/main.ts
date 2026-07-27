@@ -1,5 +1,6 @@
 import { buildApp } from './app.js';
 import { PostgresCatalog } from '../../modules/catalog/infrastructure/postgres-catalog.js';
+import { BullMqHoldExpirationScheduler } from '../../modules/reservations/infrastructure/bullmq-hold-expiration.js';
 import { PostgresReservations } from '../../modules/reservations/infrastructure/postgres-reservations.js';
 import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
@@ -10,12 +11,14 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const database = createDatabasePool(config);
   const redis = createRedisClient(config);
+  const expirationScheduler = new BullMqHoldExpirationScheduler(config);
   const app = buildApp({
     config,
     dependencies: new LiveHealthDependencies(database, redis),
     catalog: new PostgresCatalog(database),
-    reservations: new PostgresReservations(database),
+    reservations: new PostgresReservations(database, expirationScheduler),
   });
+  app.addHook('onClose', async () => expirationScheduler.close());
   let shuttingDown = false;
 
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {

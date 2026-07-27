@@ -14,6 +14,10 @@ const config: AppConfig = {
   databaseConnectionTimeoutMs: 100,
   redisConnectionTimeoutMs: 100,
   shutdownTimeoutMs: 1000,
+  holdExpirationJobAttempts: 5,
+  holdExpirationBackoffMs: 1000,
+  holdReconcilerIntervalMs: 5000,
+  holdReconcilerBatchSize: 100,
 };
 
 const dependencies = {

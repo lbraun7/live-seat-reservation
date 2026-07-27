@@ -25,6 +25,12 @@ npm run migrate
 npm run dev
 ```
 
+Em outro terminal, inicie o worker de expiração:
+
+```bash
+npm run dev:worker
+```
+
 A API fica disponível em `http://localhost:3000`.
 
 ```bash
@@ -95,11 +101,13 @@ TEST_DATABASE_URL=postgresql://reservation:reservation@localhost:5432/reservatio
 | Comando                    | Finalidade                                         |
 | -------------------------- | -------------------------------------------------- |
 | `npm run dev`              | API com reload automático                          |
+| `npm run dev:worker`       | Worker de expiração com reload automático          |
 | `npm run migrate`          | Aplica migrations pendentes com lock no PostgreSQL |
 | `npm run seed`             | Cria o evento de demonstração e 3.000 assentos     |
 | `npm run test:integration` | Testa invariantes contra PostgreSQL real           |
 | `npm run check`            | Lint, formatação, tipos, testes e build            |
 | `npm start`                | Executa o build de produção                        |
+| `npm run start:worker`     | Executa o worker compilado                         |
 
 O processo trata `SIGINT` e `SIGTERM`, para de aceitar requisições e encerra as conexões com PostgreSQL e Redis antes de sair.
 

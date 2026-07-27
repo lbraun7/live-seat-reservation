@@ -25,11 +25,35 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/ready']
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:3000/health/ready']
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 5s
+    stop_grace_period: 15s
+
+  worker:
+    build: .
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://reservation:reservation@postgres:5432/reservation
+      REDIS_URL: redis://redis:6379
+      DATABASE_CONNECTION_TIMEOUT_MS: 2000
+      REDIS_CONNECTION_TIMEOUT_MS: 2000
+      SHUTDOWN_TIMEOUT_MS: 10000
+      HOLD_EXPIRATION_JOB_ATTEMPTS: 5
+      HOLD_EXPIRATION_BACKOFF_MS: 1000
+      HOLD_RECONCILER_INTERVAL_MS: 5000
+      HOLD_RECONCILER_BATCH_SIZE: 100
+    command: ['node', 'dist/apps/worker/main.js']
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     stop_grace_period: 15s
 
   postgres:

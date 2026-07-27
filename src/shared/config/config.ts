@@ -16,6 +16,10 @@ export interface AppConfig {
   databaseConnectionTimeoutMs: number;
   redisConnectionTimeoutMs: number;
   shutdownTimeoutMs: number;
+  holdExpirationJobAttempts: number;
+  holdExpirationBackoffMs: number;
+  holdReconcilerIntervalMs: number;
+  holdReconcilerBatchSize: number;
 }
 
 type EnvironmentVariables = Record<string, string | undefined>;
@@ -88,6 +92,22 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
     shutdownTimeoutMs: integer(env, 'SHUTDOWN_TIMEOUT_MS', 10_000, errors, {
       min: 1000,
       max: 60_000,
+    }),
+    holdExpirationJobAttempts: integer(env, 'HOLD_EXPIRATION_JOB_ATTEMPTS', 5, errors, {
+      min: 1,
+      max: 20,
+    }),
+    holdExpirationBackoffMs: integer(env, 'HOLD_EXPIRATION_BACKOFF_MS', 1000, errors, {
+      min: 100,
+      max: 60_000,
+    }),
+    holdReconcilerIntervalMs: integer(env, 'HOLD_RECONCILER_INTERVAL_MS', 5000, errors, {
+      min: 100,
+      max: 3_600_000,
+    }),
+    holdReconcilerBatchSize: integer(env, 'HOLD_RECONCILER_BATCH_SIZE', 100, errors, {
+      min: 1,
+      max: 10_000,
     }),
   };
 

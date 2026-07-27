@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { Pool, PoolClient } from 'pg';
 
+import type { HoldExpirationScheduler } from '../application/hold-expiration.js';
 import {
   type CreateHoldCommand,
   type Hold,
@@ -33,10 +34,13 @@ interface IdempotencyRow {
 }
 
 export class PostgresReservations implements Reservations {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly expirationScheduler?: HoldExpirationScheduler,
+  ) {}
 
-  createHold(command: CreateHoldCommand): Promise<ReservationResult> {
-    return this.idempotent(command, 'create-hold', async (client) => {
+  async createHold(command: CreateHoldCommand): Promise<ReservationResult> {
+    const result = await this.idempotent(command, 'create-hold', async (client) => {
       const seat = await client.query<{ status: string }>(
         `SELECT s.status
            FROM seats s
@@ -55,7 +59,7 @@ export class PostgresReservations implements Reservations {
       if (seat.rows[0]?.status === 'HELD') {
         await client.query(
           `UPDATE holds
-              SET status = 'EXPIRED', updated_at = now()
+              SET status = 'EXPIRED', expired_at = now(), updated_at = now()
             WHERE seat_id = $1 AND status = 'ACTIVE' AND expires_at <= now()`,
           [command.seatId],
         );
@@ -90,6 +94,20 @@ export class PostgresReservations implements Reservations {
       );
       return { statusCode: 201, body: mapHold(requireRow(inserted.rows[0])) };
     });
+    if (
+      result.statusCode === 201 &&
+      !result.replayed &&
+      'id' in result.body &&
+      this.expirationScheduler
+    ) {
+      await this.expirationScheduler
+        .schedule({
+          holdId: result.body.id,
+          expectedExpiresAt: result.body.expiresAt,
+        })
+        .catch(() => undefined);
+    }
+    return result;
   }
 
   async getHold(holdId: string, userId: string): Promise<Hold> {
@@ -244,7 +262,7 @@ export class PostgresReservations implements Reservations {
   private async expireIfNeeded(client: PoolClient, row: HoldRow): Promise<void> {
     if (row.status !== 'ACTIVE') return;
     const expired = await client.query(
-      `UPDATE holds SET status = 'EXPIRED', updated_at = now()
+      `UPDATE holds SET status = 'EXPIRED', expired_at = now(), updated_at = now()
         WHERE id = $1 AND status = 'ACTIVE' AND expires_at <= now()
         RETURNING id`,
       [row.id],

@@ -3,6 +3,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import type {
+  HoldExpirationJob,
+  HoldExpirationScheduler,
+} from '../../src/modules/reservations/application/hold-expiration.js';
 import { PostgresReservations } from '../../src/modules/reservations/infrastructure/postgres-reservations.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -13,7 +17,7 @@ describeWithDatabase('PostgreSQL reservation invariants', () => {
   const reservations = new PostgresReservations(pool);
   const eventId = randomUUID();
   const sectionId = randomUUID();
-  const seatIds = Array.from({ length: 6 }, () => randomUUID());
+  const seatIds = Array.from({ length: 7 }, () => randomUUID());
   const seatIdAt = (index: number): string => {
     const id = seatIds[index];
     if (!id) throw new Error(`missing test seat ${String(index)}`);
@@ -214,7 +218,36 @@ describeWithDatabase('PostgreSQL reservation invariants', () => {
     ]);
     expect(state.rows[0]?.status).toBe('AVAILABLE');
   });
+
+  it('schedules the delayed expiration after creating a hold', async () => {
+    const scheduler = new RecordingExpirationScheduler();
+    const scheduledReservations = new PostgresReservations(pool, scheduler);
+    const created = await scheduledReservations.createHold({
+      eventId,
+      seatId: seatIdAt(6),
+      userId: randomUUID(),
+      idempotencyKey: 'scheduled-create',
+      requestHash: hash('scheduled-create'),
+    });
+    if (!('id' in created.body)) throw new Error('hold was not created');
+
+    expect(scheduler.jobs).toEqual([
+      {
+        holdId: created.body.id,
+        expectedExpiresAt: created.body.expiresAt,
+      },
+    ]);
+  });
 });
+
+class RecordingExpirationScheduler implements HoldExpirationScheduler {
+  readonly jobs: HoldExpirationJob[] = [];
+
+  schedule(job: HoldExpirationJob): Promise<void> {
+    this.jobs.push(job);
+    return Promise.resolve();
+  }
+}
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');

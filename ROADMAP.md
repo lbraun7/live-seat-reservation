@@ -286,20 +286,20 @@ Holds vencidos são recuperados mesmo após indisponibilidade temporária dos wo
 
 ### Tarefas
 
-- [ ] Criar tabela `outbox_events`.
-- [ ] Inserir o evento na mesma transação da mudança de domínio.
-- [ ] Implementar relay em lotes.
-- [ ] Publicar eventos no Redis.
-- [ ] Registrar tentativas e publicação concluída.
-- [ ] Permitir publicação duplicada sem efeitos incorretos.
-- [ ] Limpar ou arquivar registros antigos.
-- [ ] Adicionar métrica de eventos pendentes e idade do mais antigo.
+- [x] Criar tabela `outbox_events`.
+- [x] Inserir o evento na mesma transação da mudança de domínio.
+- [x] Implementar relay em lotes.
+- [x] Publicar eventos no Redis.
+- [x] Registrar tentativas e publicação concluída.
+- [x] Permitir publicação duplicada sem efeitos incorretos.
+- [x] Limpar ou arquivar registros antigos.
+- [x] Adicionar métrica de eventos pendentes e idade do mais antigo.
 
 ### Testes obrigatórios
 
-- [ ] Simular queda entre commit e publicação.
-- [ ] Confirmar publicação após reinício do relay.
-- [ ] Processar evento duplicado sem duplicar efeitos.
+- [x] Simular queda entre commit e publicação.
+- [x] Confirmar publicação após reinício do relay.
+- [x] Processar evento duplicado sem duplicar efeitos.
 
 ### Critério de aceite
 

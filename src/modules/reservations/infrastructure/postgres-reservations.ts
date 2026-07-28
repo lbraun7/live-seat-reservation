@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { Pool, PoolClient } from 'pg';
 
+import { appendOutboxEvent } from '../../outbox/domain/outbox.js';
 import type { HoldExpirationScheduler } from '../application/hold-expiration.js';
 import {
   type CreateHoldCommand,
@@ -57,10 +58,11 @@ export class PostgresReservations implements Reservations {
       }
 
       if (seat.rows[0]?.status === 'HELD') {
-        await client.query(
+        const expired = await client.query<{ id: string; seat_id: string }>(
           `UPDATE holds
               SET status = 'EXPIRED', expired_at = now(), updated_at = now()
-            WHERE seat_id = $1 AND status = 'ACTIVE' AND expires_at <= now()`,
+            WHERE seat_id = $1 AND status = 'ACTIVE' AND expires_at <= now()
+            RETURNING id, seat_id`,
           [command.seatId],
         );
         await client.query(
@@ -72,6 +74,14 @@ export class PostgresReservations implements Reservations {
               )`,
           [command.seatId],
         );
+        for (const expiredHold of expired.rows) {
+          await appendOutboxEvent(client, {
+            aggregateType: 'hold',
+            aggregateId: expiredHold.id,
+            eventType: 'hold.expired',
+            payload: { holdId: expiredHold.id, seatId: expiredHold.seat_id },
+          });
+        }
       }
 
       const acquired = await client.query(
@@ -92,7 +102,14 @@ export class PostgresReservations implements Reservations {
                    NULL::uuid AS order_id`,
         [holdId, command.eventId, command.seatId, command.userId, HOLD_DURATION],
       );
-      return { statusCode: 201, body: mapHold(requireRow(inserted.rows[0])) };
+      const hold = mapHold(requireRow(inserted.rows[0]));
+      await appendOutboxEvent(client, {
+        aggregateType: 'hold',
+        aggregateId: hold.id,
+        eventType: 'hold.created',
+        payload: { ...hold },
+      });
+      return { statusCode: 201, body: hold };
     });
     if (
       result.statusCode === 201 &&
@@ -139,6 +156,12 @@ export class PostgresReservations implements Reservations {
         [row.seat_id],
       );
       row.status = 'CANCELLED';
+      await appendOutboxEvent(client, {
+        aggregateType: 'hold',
+        aggregateId: row.id,
+        eventType: 'hold.cancelled',
+        payload: { ...mapHold(row) },
+      });
       return { statusCode: 200, body: mapHold(row) };
     });
   }
@@ -174,6 +197,12 @@ export class PostgresReservations implements Reservations {
       ]);
       row.status = 'CONFIRMED';
       row.order_id = orderId;
+      await appendOutboxEvent(client, {
+        aggregateType: 'hold',
+        aggregateId: row.id,
+        eventType: 'hold.confirmed',
+        payload: { ...mapHold(row), orderId },
+      });
       return { statusCode: 200, body: mapHold(row) };
     });
   }
@@ -272,6 +301,12 @@ export class PostgresReservations implements Reservations {
       row.seat_id,
     ]);
     row.status = 'EXPIRED';
+    await appendOutboxEvent(client, {
+      aggregateType: 'hold',
+      aggregateId: row.id,
+      eventType: 'hold.expired',
+      payload: { ...mapHold(row) },
+    });
   }
 
   private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {

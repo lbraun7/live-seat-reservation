@@ -20,6 +20,10 @@ export interface AppConfig {
   holdExpirationBackoffMs: number;
   holdReconcilerIntervalMs: number;
   holdReconcilerBatchSize: number;
+  outboxRelayIntervalMs: number;
+  outboxRelayBatchSize: number;
+  outboxRetentionDays: number;
+  outboxMetricsPort: number;
 }
 
 type EnvironmentVariables = Record<string, string | undefined>;
@@ -108,6 +112,22 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
     holdReconcilerBatchSize: integer(env, 'HOLD_RECONCILER_BATCH_SIZE', 100, errors, {
       min: 1,
       max: 10_000,
+    }),
+    outboxRelayIntervalMs: integer(env, 'OUTBOX_RELAY_INTERVAL_MS', 500, errors, {
+      min: 50,
+      max: 60_000,
+    }),
+    outboxRelayBatchSize: integer(env, 'OUTBOX_RELAY_BATCH_SIZE', 100, errors, {
+      min: 1,
+      max: 10_000,
+    }),
+    outboxRetentionDays: integer(env, 'OUTBOX_RETENTION_DAYS', 7, errors, {
+      min: 1,
+      max: 3650,
+    }),
+    outboxMetricsPort: integer(env, 'OUTBOX_METRICS_PORT', 9464, errors, {
+      min: 1,
+      max: 65_535,
     }),
   };
 

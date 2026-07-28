@@ -31,6 +31,12 @@ Em outro terminal, inicie o worker de expiração:
 npm run dev:worker
 ```
 
+E o relay da Transactional Outbox:
+
+```bash
+npm run dev:outbox-relay
+```
+
 A API fica disponível em `http://localhost:3000`.
 
 ```bash
@@ -96,18 +102,42 @@ TEST_DATABASE_URL=postgresql://reservation:reservation@localhost:5432/reservatio
   npm run test:integration
 ```
 
+## Transactional Outbox
+
+Criação, confirmação, cancelamento e expiração de holds gravam um evento em
+`outbox_events` dentro da mesma transação PostgreSQL da mudança. O processo
+`outbox-relay` busca lotes concorrentes com `FOR UPDATE SKIP LOCKED` e publica
+envelopes JSON no canal Redis `reservation.domain-events`.
+
+O envelope contém um `eventId` UUID estável. Como uma queda após a publicação e
+antes da confirmação no banco pode gerar uma republicação, consumidores podem
+usar `IdempotentEventConsumer`, que registra o evento em `consumed_events` na
+mesma transação do efeito. Tentativas falhas recebem backoff e eventos publicados
+são arquivados após o período configurado.
+
+Métricas Prometheus do relay:
+
+```bash
+curl http://localhost:9464/metrics
+```
+
+As gauges `outbox_pending_events` e `outbox_oldest_pending_age_seconds` mostram
+o backlog e a idade do evento pendente mais antigo.
+
 ## Comandos
 
-| Comando                    | Finalidade                                         |
-| -------------------------- | -------------------------------------------------- |
-| `npm run dev`              | API com reload automático                          |
-| `npm run dev:worker`       | Worker de expiração com reload automático          |
-| `npm run migrate`          | Aplica migrations pendentes com lock no PostgreSQL |
-| `npm run seed`             | Cria o evento de demonstração e 3.000 assentos     |
-| `npm run test:integration` | Testa invariantes contra PostgreSQL real           |
-| `npm run check`            | Lint, formatação, tipos, testes e build            |
-| `npm start`                | Executa o build de produção                        |
-| `npm run start:worker`     | Executa o worker compilado                         |
+| Comando                      | Finalidade                                         |
+| ---------------------------- | -------------------------------------------------- |
+| `npm run dev`                | API com reload automático                          |
+| `npm run dev:worker`         | Worker de expiração com reload automático          |
+| `npm run dev:outbox-relay`   | Relay da outbox com reload automático              |
+| `npm run migrate`            | Aplica migrations pendentes com lock no PostgreSQL |
+| `npm run seed`               | Cria o evento de demonstração e 3.000 assentos     |
+| `npm run test:integration`   | Testa invariantes contra PostgreSQL real           |
+| `npm run check`              | Lint, formatação, tipos, testes e build            |
+| `npm start`                  | Executa o build de produção                        |
+| `npm run start:worker`       | Executa o worker compilado                         |
+| `npm run start:outbox-relay` | Executa o relay compilado                          |
 
 O processo trata `SIGINT` e `SIGTERM`, para de aceitar requisições e encerra as conexões com PostgreSQL e Redis antes de sair.
 

@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from 'pg';
 
+import { appendOutboxEvent } from '../../outbox/domain/outbox.js';
 import type {
   ExpirationResult,
   HoldExpirationJob,
@@ -54,6 +55,7 @@ export class PostgresHoldExpirationStore implements HoldExpirationStore {
       if (!result) return { holdId: job.holdId, expired: false, reason: 'NOT_DUE' };
 
       await releaseSeats(client, [row.seat_id]);
+      await appendExpiredEvent(client, result.id, row.seat_id, result.delay_ms);
       return { holdId: result.id, expired: true, delayMs: Number(result.delay_ms) };
     });
   }
@@ -81,6 +83,9 @@ export class PostgresHoldExpirationStore implements HoldExpirationStore {
         client,
         expired.rows.map(({ seat_id }) => seat_id),
       );
+      for (const row of expired.rows) {
+        await appendExpiredEvent(client, row.id, row.seat_id, row.delay_ms);
+      }
       return expired.rows.map(({ id, delay_ms }) => ({
         holdId: id,
         expired: true,
@@ -106,6 +111,20 @@ export class PostgresHoldExpirationStore implements HoldExpirationStore {
       }
     }
   }
+}
+
+async function appendExpiredEvent(
+  client: PoolClient,
+  holdId: string,
+  seatId: string,
+  delayMs: string,
+): Promise<void> {
+  await appendOutboxEvent(client, {
+    aggregateType: 'hold',
+    aggregateId: holdId,
+    eventType: 'hold.expired',
+    payload: { holdId, seatId, delayMs: Number(delayMs) },
+  });
 }
 
 async function releaseSeats(client: PoolClient, seatIds: string[]): Promise<void> {

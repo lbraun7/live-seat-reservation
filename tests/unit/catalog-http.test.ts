@@ -18,6 +18,10 @@ const config: AppConfig = {
   holdExpirationBackoffMs: 1000,
   holdReconcilerIntervalMs: 5000,
   holdReconcilerBatchSize: 100,
+  outboxRelayIntervalMs: 500,
+  outboxRelayBatchSize: 100,
+  outboxRetentionDays: 7,
+  outboxMetricsPort: 9464,
 };
 
 const dependencies = {

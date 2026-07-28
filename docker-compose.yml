@@ -56,6 +56,31 @@ services:
         condition: service_healthy
     stop_grace_period: 15s
 
+  outbox-relay:
+    build: .
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://reservation:reservation@postgres:5432/reservation
+      REDIS_URL: redis://redis:6379
+      DATABASE_CONNECTION_TIMEOUT_MS: 2000
+      REDIS_CONNECTION_TIMEOUT_MS: 2000
+      OUTBOX_RELAY_INTERVAL_MS: 500
+      OUTBOX_RELAY_BATCH_SIZE: 100
+      OUTBOX_RETENTION_DAYS: 7
+      OUTBOX_METRICS_PORT: 9464
+    command: ['node', 'dist/apps/outbox-relay/main.js']
+    ports:
+      - '9464:9464'
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    stop_grace_period: 15s
+
   postgres:
     image: postgres:17-alpine
     environment:

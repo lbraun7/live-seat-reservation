@@ -12,8 +12,10 @@
     "start": "node dist/apps/api/main.js",
     "start:worker": "node dist/apps/worker/main.js",
     "start:outbox-relay": "node dist/apps/outbox-relay/main.js",
+    "start:websocket-gateway": "node dist/apps/websocket-gateway/main.js",
     "dev:worker": "tsx watch src/apps/worker/main.ts",
     "dev:outbox-relay": "tsx watch src/apps/outbox-relay/main.ts",
+    "dev:websocket-gateway": "tsx watch src/apps/websocket-gateway/main.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -33,12 +35,14 @@
     "dotenv": "^17.2.3",
     "fastify": "^5.6.2",
     "ioredis": "^5.8.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
     "@types/pg": "^8.15.6",
+    "@types/ws": "^8.18.1",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^16.5.0",

@@ -37,6 +37,12 @@ E o relay da Transactional Outbox:
 npm run dev:outbox-relay
 ```
 
+E o gateway de atualizações em tempo real:
+
+```bash
+npm run dev:websocket-gateway
+```
+
 A API fica disponível em `http://localhost:3000`.
 
 ```bash
@@ -124,20 +130,45 @@ curl http://localhost:9464/metrics
 As gauges `outbox_pending_events` e `outbox_oldest_pending_age_seconds` mostram
 o backlog e a idade do evento pendente mais antigo.
 
+## Atualizações em tempo real
+
+O gateway WebSocket escuta em `ws://localhost:3001/ws`. A conexão exige um UUID em
+`x-user-id`; depois de conectar, o cliente informa a versão do snapshot HTTP que já
+possui:
+
+```json
+{ "type": "subscribe", "eventId": "10000000-0000-4000-8000-000000000001", "lastVersion": 1 }
+```
+
+Cada alteração chega como `seat.updated`, com `messageId`, `eventId`, `seatId`,
+`version`, `occurredAt` e o novo `status`. Mensagens repetidas ou antigas são
+ignoradas. Se a próxima versão não for contígua, o gateway envia
+`resync.required` com a URL do snapshot; o cliente deve buscar novamente
+`GET /events/:eventId/seats`, considerando todas as páginas/seções necessárias, e
+refazer a inscrição com a nova versão.
+
+Cada instância assina o canal Redis da outbox, portanto clientes conectados em
+gateways diferentes recebem o mesmo broadcast. Ping/pong remove conexões mortas;
+limites de payload, frequência e buffer protegem o processo de clientes abusivos
+ou lentos. Durante shutdown o gateway para upgrades, envia `server.draining` e
+fecha as conexões com código `1012`.
+
 ## Comandos
 
-| Comando                      | Finalidade                                         |
-| ---------------------------- | -------------------------------------------------- |
-| `npm run dev`                | API com reload automático                          |
-| `npm run dev:worker`         | Worker de expiração com reload automático          |
-| `npm run dev:outbox-relay`   | Relay da outbox com reload automático              |
-| `npm run migrate`            | Aplica migrations pendentes com lock no PostgreSQL |
-| `npm run seed`               | Cria o evento de demonstração e 3.000 assentos     |
-| `npm run test:integration`   | Testa invariantes contra PostgreSQL real           |
-| `npm run check`              | Lint, formatação, tipos, testes e build            |
-| `npm start`                  | Executa o build de produção                        |
-| `npm run start:worker`       | Executa o worker compilado                         |
-| `npm run start:outbox-relay` | Executa o relay compilado                          |
+| Comando                           | Finalidade                                         |
+| --------------------------------- | -------------------------------------------------- |
+| `npm run dev`                     | API com reload automático                          |
+| `npm run dev:worker`              | Worker de expiração com reload automático          |
+| `npm run dev:outbox-relay`        | Relay da outbox com reload automático              |
+| `npm run migrate`                 | Aplica migrations pendentes com lock no PostgreSQL |
+| `npm run seed`                    | Cria o evento de demonstração e 3.000 assentos     |
+| `npm run test:integration`        | Testa invariantes contra PostgreSQL real           |
+| `npm run check`                   | Lint, formatação, tipos, testes e build            |
+| `npm start`                       | Executa o build de produção                        |
+| `npm run start:worker`            | Executa o worker compilado                         |
+| `npm run start:outbox-relay`      | Executa o relay compilado                          |
+| `npm run dev:websocket-gateway`   | Gateway WebSocket com reload automático            |
+| `npm run start:websocket-gateway` | Executa o gateway WebSocket compilado              |
 
 O processo trata `SIGINT` e `SIGTERM`, para de aceitar requisições e encerra as conexões com PostgreSQL e Redis antes de sair.
 

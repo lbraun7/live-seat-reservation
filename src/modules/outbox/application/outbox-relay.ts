@@ -100,12 +100,21 @@ export class OutboxRelay {
 }
 
 function mapEvent(row: OutboxRow): DomainEvent {
+  const eventIdRef = typeof row.payload.eventId === 'string' ? row.payload.eventId : undefined;
+  const seatId = typeof row.payload.seatId === 'string' ? row.payload.seatId : undefined;
+  const version =
+    typeof row.payload.version === 'number' && Number.isSafeInteger(row.payload.version)
+      ? row.payload.version
+      : undefined;
   return {
     eventId: row.id,
     eventType: row.event_type,
     aggregateType: row.aggregate_type,
     aggregateId: row.aggregate_id,
     occurredAt: row.occurred_at.toISOString(),
+    ...(eventIdRef ? { eventIdRef } : {}),
+    ...(seatId ? { seatId } : {}),
+    ...(version !== undefined ? { version } : {}),
     payload: row.payload,
   };
 }

@@ -84,8 +84,8 @@ describeWithDatabase('transactional outbox', () => {
     eventIds.push(id);
     await pool.query(
       `INSERT INTO outbox_events
-         (id, aggregate_type, aggregate_id, event_type, payload)
-       VALUES ($1, 'hold', $2, 'hold.created', '{}')`,
+         (id, aggregate_type, aggregate_id, event_type, payload, occurred_at)
+       VALUES ($1, 'hold', $2, 'hold.created', '{}', '2000-01-01T00:00:00Z')`,
       [id, randomUUID()],
     );
     return id;

@@ -22,6 +22,11 @@ const config: AppConfig = {
   outboxRelayBatchSize: 100,
   outboxRetentionDays: 7,
   outboxMetricsPort: 9464,
+  websocketPort: 3001,
+  websocketHeartbeatIntervalMs: 30_000,
+  websocketMaxMessageBytes: 4096,
+  websocketMaxMessagesPerMinute: 120,
+  websocketMaxBufferedBytes: 1_048_576,
 };
 
 const dependencies = {

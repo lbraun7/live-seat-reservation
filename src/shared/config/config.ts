@@ -24,6 +24,11 @@ export interface AppConfig {
   outboxRelayBatchSize: number;
   outboxRetentionDays: number;
   outboxMetricsPort: number;
+  websocketPort: number;
+  websocketHeartbeatIntervalMs: number;
+  websocketMaxMessageBytes: number;
+  websocketMaxMessagesPerMinute: number;
+  websocketMaxBufferedBytes: number;
 }
 
 type EnvironmentVariables = Record<string, string | undefined>;
@@ -128,6 +133,23 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
     outboxMetricsPort: integer(env, 'OUTBOX_METRICS_PORT', 9464, errors, {
       min: 1,
       max: 65_535,
+    }),
+    websocketPort: integer(env, 'WEBSOCKET_PORT', 3001, errors, { min: 1, max: 65_535 }),
+    websocketHeartbeatIntervalMs: integer(env, 'WEBSOCKET_HEARTBEAT_INTERVAL_MS', 30_000, errors, {
+      min: 1000,
+      max: 300_000,
+    }),
+    websocketMaxMessageBytes: integer(env, 'WEBSOCKET_MAX_MESSAGE_BYTES', 4096, errors, {
+      min: 128,
+      max: 1_048_576,
+    }),
+    websocketMaxMessagesPerMinute: integer(env, 'WEBSOCKET_MAX_MESSAGES_PER_MINUTE', 120, errors, {
+      min: 1,
+      max: 100_000,
+    }),
+    websocketMaxBufferedBytes: integer(env, 'WEBSOCKET_MAX_BUFFERED_BYTES', 1_048_576, errors, {
+      min: 1024,
+      max: 67_108_864,
     }),
   };
 

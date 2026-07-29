@@ -311,26 +311,26 @@ Toda mudança confirmada no banco produz um evento recuperável sem dual write i
 
 ### Tarefas
 
-- [ ] Criar gateway WebSocket autenticado.
-- [ ] Implementar inscrição por evento.
-- [ ] Implementar heartbeat com ping/pong.
-- [ ] Remover conexões mortas.
-- [ ] Propagar eventos entre múltiplas instâncias via Redis.
-- [ ] Adicionar `eventId`, `seatId`, `version` e `occurredAt` aos eventos.
-- [ ] Ignorar eventos antigos ou duplicados no consumidor.
-- [ ] Detectar gaps de versão.
-- [ ] Permitir ressincronização por snapshot HTTP.
-- [ ] Limitar tamanho e frequência de mensagens.
-- [ ] Controlar clientes lentos usando `bufferedAmount`.
-- [ ] Implementar graceful draining no gateway.
+- [x] Criar gateway WebSocket autenticado.
+- [x] Implementar inscrição por evento.
+- [x] Implementar heartbeat com ping/pong.
+- [x] Remover conexões mortas.
+- [x] Propagar eventos entre múltiplas instâncias via Redis.
+- [x] Adicionar `eventId`, `seatId`, `version` e `occurredAt` aos eventos.
+- [x] Ignorar eventos antigos ou duplicados no consumidor.
+- [x] Detectar gaps de versão.
+- [x] Permitir ressincronização por snapshot HTTP.
+- [x] Limitar tamanho e frequência de mensagens.
+- [x] Controlar clientes lentos usando `bufferedAmount`.
+- [x] Implementar graceful draining no gateway.
 
 ### Testes obrigatórios
 
-- [ ] Clientes conectados a gateways diferentes recebem a atualização.
-- [ ] Mensagem duplicada não regride o estado.
-- [ ] Gap de versão provoca ressincronização.
-- [ ] Reconnect storm não derruba o processo.
-- [ ] Cliente lento não causa crescimento ilimitado de memória.
+- [x] Clientes conectados a gateways diferentes recebem a atualização.
+- [x] Mensagem duplicada não regride o estado.
+- [x] Gap de versão provoca ressincronização.
+- [x] Reconnect storm não derruba o processo.
+- [x] Cliente lento não causa crescimento ilimitado de memória.
 
 ### Critério de aceite
 

@@ -10,6 +10,7 @@ import {
   toSeatRealtimeEvent,
   type SeatRealtimeEvent,
 } from '../domain/realtime.js';
+import type { WaitingRoom } from '../../waiting-room/domain/waiting-room.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -24,10 +25,12 @@ export interface RealtimeGatewayOptions {
 }
 
 interface ClientState {
+  userId: string;
   alive: boolean;
   subscriptions: Map<string, number>;
   windowStartedAt: number;
   messagesInWindow: number;
+  waitingSessions: Map<string, string>;
 }
 
 export class RealtimeGateway {
@@ -40,6 +43,7 @@ export class RealtimeGateway {
   constructor(
     private readonly subscriber: Redis,
     private readonly options: RealtimeGatewayOptions,
+    private readonly waitingRoom?: WaitingRoom,
   ) {
     this.server = createServer((request, response) => {
       if (request.url === '/health/live') {
@@ -119,15 +123,18 @@ export class RealtimeGateway {
         return;
       }
       this.websocketServer.handleUpgrade(request, socket, head, (client) => {
+        (client as WebSocket & { authenticatedUserId?: string }).authenticatedUserId = userId;
         this.websocketServer.emit('connection', client, request);
       });
     });
     this.websocketServer.on('connection', (client) => {
       const state: ClientState = {
+        userId: (client as WebSocket & { authenticatedUserId?: string }).authenticatedUserId ?? '',
         alive: true,
         subscriptions: new Map(),
         windowStartedAt: Date.now(),
         messagesInWindow: 0,
+        waitingSessions: new Map(),
       };
       this.clients.set(client, state);
       client.on('pong', () => {
@@ -162,6 +169,23 @@ export class RealtimeGateway {
     }
     try {
       const message: unknown = JSON.parse(messageText(data));
+      if (
+        typeof message === 'object' &&
+        message !== null &&
+        'type' in message &&
+        message.type === 'waiting-room.subscribe' &&
+        'eventId' in message &&
+        typeof message.eventId === 'string' &&
+        UUID.test(message.eventId) &&
+        'sessionId' in message &&
+        typeof message.sessionId === 'string' &&
+        UUID.test(message.sessionId) &&
+        this.waitingRoom
+      ) {
+        state.waitingSessions.set(message.eventId, message.sessionId);
+        void this.pushWaitingRoomUpdate(client, state, message.eventId, message.sessionId);
+        return;
+      }
       if (
         typeof message !== 'object' ||
         message === null ||
@@ -242,6 +266,40 @@ export class RealtimeGateway {
       }
       state.alive = false;
       client.ping();
+      for (const [eventId, sessionId] of state.waitingSessions) {
+        void this.pushWaitingRoomUpdate(client, state, eventId, sessionId);
+      }
+    }
+  }
+
+  private async pushWaitingRoomUpdate(
+    client: WebSocket,
+    state: ClientState,
+    eventId: string,
+    sessionId: string,
+  ): Promise<void> {
+    if (!this.waitingRoom) return;
+    try {
+      const update = await this.waitingRoom.heartbeat({
+        eventId,
+        sessionId,
+        userId: state.userId,
+        ip: 'websocket',
+      });
+      this.send(client, {
+        type: 'token' in update ? 'waiting-room.admitted' : 'waiting-room.position',
+        ...update,
+      });
+      if ('token' in update) state.waitingSessions.delete(eventId);
+    } catch (error) {
+      state.waitingSessions.delete(eventId);
+      this.send(client, {
+        type: 'waiting-room.error',
+        code:
+          typeof error === 'object' && error !== null && 'code' in error
+            ? error.code
+            : 'WAITING_ROOM_UNAVAILABLE',
+      });
     }
   }
 }

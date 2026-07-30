@@ -8,6 +8,7 @@ import {
   type ReservationResult,
   type Reservations,
 } from '../domain/reservations.js';
+import type { WaitingRoom } from '../../waiting-room/domain/waiting-room.js';
 
 const Uuid = Type.String({ format: 'uuid' });
 const IdentityHeaders = Type.Object({
@@ -17,6 +18,12 @@ const CommandHeaders = Type.Intersect([
   IdentityHeaders,
   Type.Object({
     'idempotency-key': Type.String({ minLength: 1, maxLength: 128 }),
+  }),
+]);
+const CreateHoldHeaders = Type.Intersect([
+  CommandHeaders,
+  Type.Object({
+    'x-admission-token': Type.String({ minLength: 1, maxLength: 2048 }),
   }),
 ]);
 const HoldParams = Type.Object({ holdId: Uuid });
@@ -41,6 +48,7 @@ const ErrorResponse = Type.Object({ code: Type.String(), message: Type.String() 
 
 type IdentityHeadersType = Static<typeof IdentityHeaders>;
 type CommandHeadersType = Static<typeof CommandHeaders>;
+type CreateHoldHeadersType = Static<typeof CreateHoldHeaders>;
 type HoldParamsType = Static<typeof HoldParams>;
 type EventParamsType = Static<typeof EventParams>;
 type CreateHoldBodyType = Static<typeof CreateHoldBody>;
@@ -50,23 +58,38 @@ const errorResponses = {
   403: ErrorResponse,
   404: ErrorResponse,
   409: ErrorResponse,
+  429: ErrorResponse,
+  503: ErrorResponse,
 };
 
-export function registerReservationRoutes(app: FastifyInstance, reservations: Reservations): void {
+export function registerReservationRoutes(
+  app: FastifyInstance,
+  reservations: Reservations,
+  waitingRoom?: WaitingRoom,
+): void {
   app.post<{
     Params: EventParamsType;
-    Headers: CommandHeadersType;
+    Headers: CreateHoldHeadersType;
     Body: CreateHoldBodyType;
   }>('/events/:eventId/holds', {
     schema: {
       params: EventParams,
-      headers: CommandHeaders,
+      headers: waitingRoom ? CreateHoldHeaders : CommandHeaders,
       body: CreateHoldBody,
       response: { 201: HoldResponse, ...errorResponses },
     },
     handler: async (request, reply) =>
-      handle(reply, () =>
-        reservations.createHold({
+      handle(reply, async () => {
+        if (waitingRoom) {
+          await waitingRoom.consumeAdmission({
+            token: request.headers['x-admission-token'],
+            eventId: request.params.eventId,
+            userId: request.headers['x-user-id'],
+            ip: request.ip,
+            idempotencyKey: request.headers['idempotency-key'],
+          });
+        }
+        return reservations.createHold({
           eventId: request.params.eventId,
           seatId: request.body.seatId,
           userId: request.headers['x-user-id'],
@@ -75,8 +98,8 @@ export function registerReservationRoutes(app: FastifyInstance, reservations: Re
             eventId: request.params.eventId,
             seatId: request.body.seatId,
           }),
-        }),
-      ),
+        });
+      }),
   });
 
   app.get<{ Params: HoldParamsType; Headers: IdentityHeadersType }>('/holds/:holdId', {
@@ -135,6 +158,17 @@ async function handle(
 function sendError(reply: FastifyReply, error: unknown): unknown {
   if (error instanceof ReservationError) {
     return reply.code(error.statusCode).send({ code: error.code, message: error.message });
+  }
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'statusCode' in error &&
+    'code' in error &&
+    error instanceof Error
+  ) {
+    return reply
+      .code(error.statusCode as number)
+      .send({ code: error.code as string, message: error.message });
   }
   throw error;
 }

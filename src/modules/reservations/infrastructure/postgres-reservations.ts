@@ -38,10 +38,29 @@ export class PostgresReservations implements Reservations {
   constructor(
     private readonly pool: Pool,
     private readonly expirationScheduler?: HoldExpirationScheduler,
+    private readonly maxActiveHoldsPerUser = 4,
   ) {}
 
   async createHold(command: CreateHoldCommand): Promise<ReservationResult> {
     const result = await this.idempotent(command, 'create-hold', async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+        command.eventId,
+        command.userId,
+      ]);
+      const activeHolds = await client.query<{ count: string }>(
+        `SELECT count(*)::text AS count
+           FROM holds
+          WHERE event_id = $1 AND user_id = $2
+            AND status = 'ACTIVE' AND expires_at > now()`,
+        [command.eventId, command.userId],
+      );
+      if (Number(activeHolds.rows[0]?.count ?? 0) >= this.maxActiveHoldsPerUser) {
+        throw new ReservationError(
+          'ACTIVE_HOLD_LIMIT_REACHED',
+          'Maximum simultaneous holds reached',
+          409,
+        );
+      }
       const seat = await client.query<{ status: string }>(
         `SELECT s.status
            FROM seats s

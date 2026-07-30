@@ -43,6 +43,12 @@ E o gateway de atualizações em tempo real:
 npm run dev:websocket-gateway
 ```
 
+E o controlador da sala de espera:
+
+```bash
+npm run dev:admission-controller
+```
+
 A API fica disponível em `http://localhost:3000`.
 
 ```bash
@@ -74,15 +80,25 @@ permite ao cliente detectar mudanças e ressincronizar o mapa.
 ## Reservas
 
 Comandos de reserva exigem um usuário UUID em `x-user-id` e uma chave de idempotência.
-O hold dura cinco minutos, calculados pelo relógio do PostgreSQL:
+Para criar um hold, o cliente também precisa passar primeiro pela sala de espera e enviar o
+token de admissão:
 
 ```bash
 USER_ID=40000000-0000-4000-8000-000000000001
 SEAT_ID=30000000-0000-4000-8000-000000000001
 
+curl -X POST "http://localhost:3000/events/$EVENT_ID/waiting-room" \
+  -H "x-user-id: $USER_ID"
+
+# Envie heartbeat até a resposta conter token:
+curl -X POST \
+  "http://localhost:3000/events/$EVENT_ID/waiting-room/$SESSION_ID/heartbeat" \
+  -H "x-user-id: $USER_ID"
+
 curl -X POST "http://localhost:3000/events/$EVENT_ID/holds" \
   -H "content-type: application/json" \
   -H "x-user-id: $USER_ID" \
+  -H "x-admission-token: $ADMISSION_TOKEN" \
   -H "idempotency-key: create-1" \
   -d "{\"seatId\":\"$SEAT_ID\"}"
 
@@ -100,6 +116,32 @@ curl -X POST "http://localhost:3000/holds/$HOLD_ID/cancel" \
 Repetir um comando com a mesma chave e payload devolve a resposta persistida e inclui
 `idempotency-replayed: true`. Reutilizar a chave com outro payload retorna
 `IDEMPOTENCY_KEY_REUSED`.
+
+## Sala de espera
+
+A fila de cada evento é um Redis ZSET ordenado pelo instante de entrada e, em empates, pelo
+UUID da sessão. Sessões sem heartbeat expiram e são removidas. Um ou mais processos
+`admission-controller` executam um script Lua atômico que limpa admissões vencidas, respeita
+o teto global de admissões ativas e libera o próximo lote.
+
+O lote diminui automaticamente quando há espera no pool PostgreSQL ou quando a sonda do
+banco ultrapassa o limite de latência. O token HMAC dura 60 segundos, pertence a um único
+usuário, evento e sessão e só pode autorizar uma chave de idempotência. Limites adicionais
+são aplicados por usuário, sessão e IP; o PostgreSQL limita atomicamente os holds ativos de
+um usuário.
+
+Para receber posições aproximadas pelo gateway, envie:
+
+```json
+{
+  "type": "waiting-room.subscribe",
+  "eventId": "10000000-0000-4000-8000-000000000001",
+  "sessionId": "UUID_DA_SESSAO"
+}
+```
+
+O gateway responde com `waiting-room.position` e, após a admissão,
+`waiting-room.admitted`, incluindo o token.
 
 Os testes reais de concorrência precisam de um banco já migrado:
 
@@ -155,20 +197,22 @@ fecha as conexões com código `1012`.
 
 ## Comandos
 
-| Comando                           | Finalidade                                         |
-| --------------------------------- | -------------------------------------------------- |
-| `npm run dev`                     | API com reload automático                          |
-| `npm run dev:worker`              | Worker de expiração com reload automático          |
-| `npm run dev:outbox-relay`        | Relay da outbox com reload automático              |
-| `npm run migrate`                 | Aplica migrations pendentes com lock no PostgreSQL |
-| `npm run seed`                    | Cria o evento de demonstração e 3.000 assentos     |
-| `npm run test:integration`        | Testa invariantes contra PostgreSQL real           |
-| `npm run check`                   | Lint, formatação, tipos, testes e build            |
-| `npm start`                       | Executa o build de produção                        |
-| `npm run start:worker`            | Executa o worker compilado                         |
-| `npm run start:outbox-relay`      | Executa o relay compilado                          |
-| `npm run dev:websocket-gateway`   | Gateway WebSocket com reload automático            |
-| `npm run start:websocket-gateway` | Executa o gateway WebSocket compilado              |
+| Comando                              | Finalidade                                          |
+| ------------------------------------ | --------------------------------------------------- |
+| `npm run dev`                        | API com reload automático                           |
+| `npm run dev:worker`                 | Worker de expiração com reload automático           |
+| `npm run dev:outbox-relay`           | Relay da outbox com reload automático               |
+| `npm run migrate`                    | Aplica migrations pendentes com lock no PostgreSQL  |
+| `npm run seed`                       | Cria o evento de demonstração e 3.000 assentos      |
+| `npm run test:integration`           | Testa invariantes contra PostgreSQL real            |
+| `npm run check`                      | Lint, formatação, tipos, testes e build             |
+| `npm start`                          | Executa o build de produção                         |
+| `npm run start:worker`               | Executa o worker compilado                          |
+| `npm run start:outbox-relay`         | Executa o relay compilado                           |
+| `npm run dev:websocket-gateway`      | Gateway WebSocket com reload automático             |
+| `npm run dev:admission-controller`   | Controlador da sala de espera com reload automático |
+| `npm run start:websocket-gateway`    | Executa o gateway WebSocket compilado               |
+| `npm run start:admission-controller` | Executa o controlador de admissão compilado         |
 
 O processo trata `SIGINT` e `SIGTERM`, para de aceitar requisições e encerra as conexões com PostgreSQL e Redis antes de sair.
 

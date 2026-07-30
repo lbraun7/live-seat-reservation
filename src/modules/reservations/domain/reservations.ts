@@ -7,6 +7,7 @@ export const reservationErrorCodes = [
   'HOLD_NOT_ACTIVE',
   'HOLD_EXPIRED',
   'IDEMPOTENCY_KEY_REUSED',
+  'ACTIVE_HOLD_LIMIT_REACHED',
 ] as const;
 
 export type ReservationErrorCode = (typeof reservationErrorCodes)[number];

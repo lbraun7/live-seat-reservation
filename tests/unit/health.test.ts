@@ -27,6 +27,20 @@ const config: AppConfig = {
   websocketMaxMessageBytes: 4096,
   websocketMaxMessagesPerMinute: 120,
   websocketMaxBufferedBytes: 1_048_576,
+  admissionTokenSecret: 'test-secret-at-least-thirty-two-characters',
+  admissionTokenTtlSeconds: 60,
+  waitingRoomSessionTtlSeconds: 90,
+  admissionControllerIntervalMs: 1000,
+  admissionBatchSize: 25,
+  maxActiveAdmissions: 100,
+  admissionSaturationLatencyMs: 100,
+  admissionMaxExpirationBacklog: 10_000,
+  waitingRoomEventId: '10000000-0000-4000-8000-000000000001',
+  rateLimitWindowSeconds: 60,
+  rateLimitPerUser: 30,
+  rateLimitPerSession: 120,
+  rateLimitPerIp: 300,
+  maxActiveHoldsPerUser: 4,
 };
 
 function dependencies(database: boolean, redis: boolean): HealthDependencies {

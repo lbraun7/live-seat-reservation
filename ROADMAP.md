@@ -342,26 +342,26 @@ O mapa é atualizado em múltiplas instâncias e consegue se recuperar de mensag
 
 ### Tarefas
 
-- [ ] Implementar fila no Redis ZSET.
-- [ ] Definir ordenação determinística para empates.
-- [ ] Implementar heartbeat de sessões em espera.
-- [ ] Informar posição aproximada via WebSocket.
-- [ ] Criar admission controller com liberação em lotes.
-- [ ] Emitir admission token curto, assinado e vinculado ao usuário e evento.
-- [ ] Impedir reutilização da admissão.
-- [ ] Proteger a criação de holds com o admission token.
-- [ ] Aplicar rate limit por usuário, sessão e IP.
-- [ ] Limitar holds simultâneos por usuário.
-- [ ] Implementar backpressure quando banco ou workers estiverem saturados.
-- [ ] Evoluir lote fixo para admissão adaptativa baseada em métricas.
+- [x] Implementar fila no Redis ZSET.
+- [x] Definir ordenação determinística para empates.
+- [x] Implementar heartbeat de sessões em espera.
+- [x] Informar posição aproximada via WebSocket.
+- [x] Criar admission controller com liberação em lotes.
+- [x] Emitir admission token curto, assinado e vinculado ao usuário e evento.
+- [x] Impedir reutilização da admissão.
+- [x] Proteger a criação de holds com o admission token.
+- [x] Aplicar rate limit por usuário, sessão e IP.
+- [x] Limitar holds simultâneos por usuário.
+- [x] Implementar backpressure quando banco ou workers estiverem saturados.
+- [x] Evoluir lote fixo para admissão adaptativa baseada em métricas.
 
 ### Testes obrigatórios
 
-- [ ] Cliente não admitido não consegue reservar.
-- [ ] Token expirado ou de outro evento é rejeitado.
-- [ ] Token consumido não pode ser reutilizado.
-- [ ] Sessão abandonada é removida.
-- [ ] Múltiplos admission controllers não liberam além do limite definido.
+- [x] Cliente não admitido não consegue reservar.
+- [x] Token expirado ou de outro evento é rejeitado.
+- [x] Token consumido não pode ser reutilizado.
+- [x] Sessão abandonada é removida.
+- [x] Múltiplos admission controllers não liberam além do limite definido.
 
 ### Critério de aceite
 

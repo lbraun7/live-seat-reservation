@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../../src/apps/api/app.js';
 import type { Reservations } from '../../src/modules/reservations/domain/reservations.js';
 import type { AppConfig } from '../../src/shared/config/config.js';
+import {
+  WaitingRoomError,
+  type WaitingRoom,
+} from '../../src/modules/waiting-room/domain/waiting-room.js';
 
 const config: AppConfig = {
   nodeEnv: 'test',
@@ -27,6 +31,20 @@ const config: AppConfig = {
   websocketMaxMessageBytes: 4096,
   websocketMaxMessagesPerMinute: 120,
   websocketMaxBufferedBytes: 1_048_576,
+  admissionTokenSecret: 'test-secret-at-least-thirty-two-characters',
+  admissionTokenTtlSeconds: 60,
+  waitingRoomSessionTtlSeconds: 90,
+  admissionControllerIntervalMs: 1000,
+  admissionBatchSize: 25,
+  maxActiveAdmissions: 100,
+  admissionSaturationLatencyMs: 100,
+  admissionMaxExpirationBacklog: 10_000,
+  waitingRoomEventId: '10000000-0000-4000-8000-000000000001',
+  rateLimitWindowSeconds: 60,
+  rateLimitPerUser: 30,
+  rateLimitPerSession: 120,
+  rateLimitPerIp: 300,
+  maxActiveHoldsPerUser: 4,
 };
 const dependencies = {
   check: vi.fn().mockResolvedValue({ database: true, redis: true }),
@@ -122,6 +140,41 @@ describe('reservation HTTP contracts', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers['idempotency-replayed']).toBe('true');
+    await app.close();
+  });
+
+  it('does not create a hold when the client has not been admitted', async () => {
+    const createHold = vi.fn<Reservations['createHold']>();
+    const waitingRoom: WaitingRoom = {
+      join: vi.fn(),
+      heartbeat: vi.fn(),
+      position: vi.fn(),
+      consumeAdmission: vi
+        .fn()
+        .mockRejectedValue(
+          new WaitingRoomError('ADMISSION_TOKEN_INVALID', 'Admission token is invalid', 403),
+        ),
+    };
+    const app = buildApp({
+      config,
+      dependencies,
+      reservations: service({ createHold }),
+      waitingRoom,
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: `/events/${eventId}/holds`,
+      headers: {
+        'x-user-id': userId,
+        'idempotency-key': 'not-admitted',
+        'x-admission-token': 'invalid-token',
+      },
+      payload: { seatId },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ code: 'ADMISSION_TOKEN_INVALID' });
+    expect(createHold).not.toHaveBeenCalled();
     await app.close();
   });
 });

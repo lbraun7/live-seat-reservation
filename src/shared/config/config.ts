@@ -29,6 +29,20 @@ export interface AppConfig {
   websocketMaxMessageBytes: number;
   websocketMaxMessagesPerMinute: number;
   websocketMaxBufferedBytes: number;
+  admissionTokenSecret: string;
+  admissionTokenTtlSeconds: number;
+  waitingRoomSessionTtlSeconds: number;
+  admissionControllerIntervalMs: number;
+  admissionBatchSize: number;
+  maxActiveAdmissions: number;
+  admissionSaturationLatencyMs: number;
+  admissionMaxExpirationBacklog: number;
+  waitingRoomEventId: string;
+  rateLimitWindowSeconds: number;
+  rateLimitPerUser: number;
+  rateLimitPerSession: number;
+  rateLimitPerIp: number;
+  maxActiveHoldsPerUser: number;
 }
 
 type EnvironmentVariables = Record<string, string | undefined>;
@@ -75,6 +89,8 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
   const logLevel = env.LOG_LEVEL ?? 'info';
   const databaseUrl = required(env, 'DATABASE_URL', errors);
   const redisUrl = required(env, 'REDIS_URL', errors);
+  const admissionTokenSecret =
+    env.ADMISSION_TOKEN_SECRET?.trim() ?? 'development-only-change-this-secret';
 
   if (!environments.includes(nodeEnv as Environment)) {
     errors.push(`NODE_ENV must be one of: ${environments.join(', ')}`);
@@ -151,8 +167,67 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
       min: 1024,
       max: 67_108_864,
     }),
+    admissionTokenSecret,
+    admissionTokenTtlSeconds: integer(env, 'ADMISSION_TOKEN_TTL_SECONDS', 60, errors, {
+      min: 5,
+      max: 3600,
+    }),
+    waitingRoomSessionTtlSeconds: integer(env, 'WAITING_ROOM_SESSION_TTL_SECONDS', 90, errors, {
+      min: 5,
+      max: 3600,
+    }),
+    admissionControllerIntervalMs: integer(env, 'ADMISSION_CONTROLLER_INTERVAL_MS', 1000, errors, {
+      min: 100,
+      max: 60_000,
+    }),
+    admissionBatchSize: integer(env, 'ADMISSION_BATCH_SIZE', 25, errors, {
+      min: 1,
+      max: 10_000,
+    }),
+    maxActiveAdmissions: integer(env, 'MAX_ACTIVE_ADMISSIONS', 100, errors, {
+      min: 1,
+      max: 100_000,
+    }),
+    admissionSaturationLatencyMs: integer(env, 'ADMISSION_SATURATION_LATENCY_MS', 100, errors, {
+      min: 1,
+      max: 60_000,
+    }),
+    admissionMaxExpirationBacklog: integer(
+      env,
+      'ADMISSION_MAX_EXPIRATION_BACKLOG',
+      10_000,
+      errors,
+      { min: 1, max: 10_000_000 },
+    ),
+    waitingRoomEventId: env.WAITING_ROOM_EVENT_ID ?? '10000000-0000-4000-8000-000000000001',
+    rateLimitWindowSeconds: integer(env, 'RATE_LIMIT_WINDOW_SECONDS', 60, errors, {
+      min: 1,
+      max: 3600,
+    }),
+    rateLimitPerUser: integer(env, 'RATE_LIMIT_PER_USER', 30, errors, {
+      min: 1,
+      max: 100_000,
+    }),
+    rateLimitPerSession: integer(env, 'RATE_LIMIT_PER_SESSION', 120, errors, {
+      min: 1,
+      max: 100_000,
+    }),
+    rateLimitPerIp: integer(env, 'RATE_LIMIT_PER_IP', 300, errors, {
+      min: 1,
+      max: 1_000_000,
+    }),
+    maxActiveHoldsPerUser: integer(env, 'MAX_ACTIVE_HOLDS_PER_USER', 4, errors, {
+      min: 1,
+      max: 1000,
+    }),
   };
 
+  if (nodeEnv === 'production' && admissionTokenSecret === 'development-only-change-this-secret') {
+    errors.push('ADMISSION_TOKEN_SECRET must be set in production');
+  }
+  if (admissionTokenSecret.length < 32) {
+    errors.push('ADMISSION_TOKEN_SECRET must contain at least 32 characters');
+  }
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration:\n- ${errors.join('\n- ')}`);
   }

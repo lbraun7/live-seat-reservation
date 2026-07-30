@@ -6,17 +6,36 @@ import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
 import { LiveHealthDependencies } from '../../shared/health/live-dependencies.js';
 import { createRedisClient } from '../../shared/redis/client.js';
+import { AdmissionTokenSigner } from '../../modules/waiting-room/application/admission-token.js';
+import { RedisWaitingRoom } from '../../modules/waiting-room/infrastructure/redis-waiting-room.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const database = createDatabasePool(config);
   const redis = createRedisClient(config);
   const expirationScheduler = new BullMqHoldExpirationScheduler(config);
+  const waitingRoom = new RedisWaitingRoom(
+    redis,
+    new AdmissionTokenSigner(config.admissionTokenSecret, config.admissionTokenTtlSeconds),
+    {
+      sessionTtlSeconds: config.waitingRoomSessionTtlSeconds,
+      admissionTtlSeconds: config.admissionTokenTtlSeconds,
+      rateLimitWindowSeconds: config.rateLimitWindowSeconds,
+      rateLimitPerUser: config.rateLimitPerUser,
+      rateLimitPerSession: config.rateLimitPerSession,
+      rateLimitPerIp: config.rateLimitPerIp,
+    },
+  );
   const app = buildApp({
     config,
     dependencies: new LiveHealthDependencies(database, redis),
     catalog: new PostgresCatalog(database),
-    reservations: new PostgresReservations(database, expirationScheduler),
+    reservations: new PostgresReservations(
+      database,
+      expirationScheduler,
+      config.maxActiveHoldsPerUser,
+    ),
+    waitingRoom,
   });
   app.addHook('onClose', async () => expirationScheduler.close());
   let shuttingDown = false;

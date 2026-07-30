@@ -9,6 +9,8 @@ import type { Reservations } from '../../modules/reservations/domain/reservation
 import { registerReservationRoutes } from '../../modules/reservations/transport/http.js';
 import type { AppConfig } from '../../shared/config/config.js';
 import type { HealthDependencies } from '../../shared/health/dependencies.js';
+import type { WaitingRoom } from '../../modules/waiting-room/domain/waiting-room.js';
+import { registerWaitingRoomRoutes } from '../../modules/waiting-room/transport/http.js';
 
 const HealthResponse = Type.Object({
   status: Type.Union([Type.Literal('ok'), Type.Literal('unavailable')]),
@@ -24,6 +26,7 @@ export interface BuildAppOptions {
   dependencies: HealthDependencies;
   catalog?: Catalog;
   reservations?: Reservations;
+  waitingRoom?: WaitingRoom;
 }
 
 export function buildApp({
@@ -31,6 +34,7 @@ export function buildApp({
   dependencies,
   catalog,
   reservations,
+  waitingRoom,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: { level: config.logLevel },
@@ -64,7 +68,8 @@ export function buildApp({
   });
 
   if (catalog) registerCatalogRoutes(app, catalog);
-  if (reservations) registerReservationRoutes(app, reservations);
+  if (waitingRoom) registerWaitingRoomRoutes(app, waitingRoom);
+  if (reservations) registerReservationRoutes(app, reservations, waitingRoom);
 
   app.addHook('onClose', async () => dependencies.close());
   return app;

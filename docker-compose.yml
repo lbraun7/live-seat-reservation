@@ -12,6 +12,7 @@ services:
       REDIS_CONNECTION_TIMEOUT_MS: 2000
       SHUTDOWN_TIMEOUT_MS: 10000
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
+      PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
     command:
       [
         'sh',
@@ -48,6 +49,7 @@ services:
       HOLD_RECONCILER_INTERVAL_MS: 5000
       HOLD_RECONCILER_BATCH_SIZE: 100
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
+      PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
     command: ['node', 'dist/apps/worker/main.js']
     depends_on:
       api:
@@ -72,6 +74,7 @@ services:
       OUTBOX_RETENTION_DAYS: 7
       OUTBOX_METRICS_PORT: 9464
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
+      PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
     command: ['node', 'dist/apps/outbox-relay/main.js']
     ports:
       - '9464:9464'
@@ -100,6 +103,7 @@ services:
       WEBSOCKET_MAX_MESSAGES_PER_MINUTE: 120
       WEBSOCKET_MAX_BUFFERED_BYTES: 1048576
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
+      PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
     command: ['node', 'dist/apps/websocket-gateway/main.js']
     ports:
       - '3001:3001'
@@ -121,6 +125,7 @@ services:
       DATABASE_URL: postgresql://reservation:reservation@postgres:5432/reservation
       REDIS_URL: redis://redis:6379
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
+      PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
       WAITING_ROOM_EVENT_ID: 10000000-0000-4000-8000-000000000001
       ADMISSION_CONTROLLER_INTERVAL_MS: 1000
       ADMISSION_BATCH_SIZE: 25

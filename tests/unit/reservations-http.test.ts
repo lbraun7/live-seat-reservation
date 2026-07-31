@@ -45,6 +45,7 @@ const config: AppConfig = {
   rateLimitPerSession: 120,
   rateLimitPerIp: 300,
   maxActiveHoldsPerUser: 4,
+  paymentWebhookSecret: 'test-payment-secret-at-least-thirty-two-characters',
 };
 const dependencies = {
   check: vi.fn().mockResolvedValue({ database: true, redis: true }),

@@ -373,22 +373,22 @@ A fila controla efetivamente a taxa de entrada; não serve apenas como posição
 
 ### Tarefas
 
-- [ ] Criar fake payment provider.
-- [ ] Iniciar checkout a partir de um hold válido.
-- [ ] Implementar webhook assinado.
-- [ ] Deduplicar webhooks.
-- [ ] Tolerar callbacks fora de ordem.
-- [ ] Confirmar pedido atomicamente.
-- [ ] Definir política para pagamento concluído após a expiração.
-- [ ] Implementar timeout, falha e cancelamento do pagamento.
-- [ ] Registrar histórico mínimo das transições.
+- [x] Criar fake payment provider.
+- [x] Iniciar checkout a partir de um hold válido.
+- [x] Implementar webhook assinado.
+- [x] Deduplicar webhooks.
+- [x] Tolerar callbacks fora de ordem.
+- [x] Confirmar pedido atomicamente.
+- [x] Definir política para pagamento concluído após a expiração.
+- [x] Implementar timeout, falha e cancelamento do pagamento.
+- [x] Registrar histórico mínimo das transições.
 
 ### Testes obrigatórios
 
-- [ ] Webhook duplicado não cria dois pedidos.
-- [ ] Pagamento atrasado segue a política documentada.
-- [ ] Falha de pagamento não vende o assento.
-- [ ] Retry do checkout retorna o resultado original.
+- [x] Webhook duplicado não cria dois pedidos.
+- [x] Pagamento atrasado segue a política documentada.
+- [x] Falha de pagamento não vende o assento.
+- [x] Retry do checkout retorna o resultado original.
 
 ### Critério de aceite
 

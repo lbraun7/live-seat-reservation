@@ -117,6 +117,26 @@ Repetir um comando com a mesma chave e payload devolve a resposta persistida e i
 `idempotency-replayed: true`. Reutilizar a chave com outro payload retorna
 `IDEMPOTENCY_KEY_REUSED`.
 
+## Checkout e pagamento simulado
+
+Um checkout só começa para um hold ativo e pertence ao mesmo usuário. A mesma chave de
+idempotência devolve o pagamento original:
+
+```bash
+curl -X POST "http://localhost:3000/holds/$HOLD_ID/checkout" \
+  -H "x-user-id: $USER_ID" -H "idempotency-key: checkout-1"
+```
+
+O fake provider devolve um `providerPaymentId`. Para simular seu callback, envie um evento
+para `POST /webhooks/fake-payment` com `x-payment-signature`, calculado como HMAC-SHA256 de
+`eventId.providerPaymentId.type.occurredAt` usando `PAYMENT_WEBHOOK_SECRET`. Eventos são
+deduplicados por `eventId` e os mais antigos que o último callback aplicado são ignorados.
+
+O sucesso confirma hold, assento e pedido na mesma transação. Falha, cancelamento e timeout
+liberam o assento sem criar pedido. A política para sucesso após expiração ou outro estado
+terminal é marcar o pagamento como `LATE_SUCCEEDED`: o assento não é vendido e o registro
+fica explicitamente sinalizado para estorno. Toda mudança fica em `payment_transitions`.
+
 ## Sala de espera
 
 A fila de cada evento é um Redis ZSET ordenado pelo instante de entrada e, em empates, pelo

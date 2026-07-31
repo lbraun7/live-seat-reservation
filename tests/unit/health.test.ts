@@ -41,6 +41,7 @@ const config: AppConfig = {
   rateLimitPerSession: 120,
   rateLimitPerIp: 300,
   maxActiveHoldsPerUser: 4,
+  paymentWebhookSecret: 'test-payment-secret-at-least-thirty-two-characters',
 };
 
 function dependencies(database: boolean, redis: boolean): HealthDependencies {

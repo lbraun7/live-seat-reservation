@@ -8,6 +8,8 @@ import { LiveHealthDependencies } from '../../shared/health/live-dependencies.js
 import { createRedisClient } from '../../shared/redis/client.js';
 import { AdmissionTokenSigner } from '../../modules/waiting-room/application/admission-token.js';
 import { RedisWaitingRoom } from '../../modules/waiting-room/infrastructure/redis-waiting-room.js';
+import { FakePaymentProvider } from '../../modules/checkout/infrastructure/fake-payment-provider.js';
+import { PostgresCheckout } from '../../modules/checkout/infrastructure/postgres-checkout.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -36,6 +38,7 @@ async function main(): Promise<void> {
       config.maxActiveHoldsPerUser,
     ),
     waitingRoom,
+    checkout: new PostgresCheckout(database, new FakePaymentProvider()),
   });
   app.addHook('onClose', async () => expirationScheduler.close());
   let shuttingDown = false;

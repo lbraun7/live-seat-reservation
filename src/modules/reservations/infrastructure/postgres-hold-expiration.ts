@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 
 import { appendOutboxEvent } from '../../outbox/domain/outbox.js';
@@ -55,6 +56,7 @@ export class PostgresHoldExpirationStore implements HoldExpirationStore {
       if (!result) return { holdId: job.holdId, expired: false, reason: 'NOT_DUE' };
 
       await releaseSeats(client, [row.seat_id]);
+      await timeoutPayments(client, [result.id]);
       await appendExpiredEvent(client, result.id, row.seat_id, result.delay_ms);
       return { holdId: result.id, expired: true, delayMs: Number(result.delay_ms) };
     });
@@ -83,6 +85,10 @@ export class PostgresHoldExpirationStore implements HoldExpirationStore {
         client,
         expired.rows.map(({ seat_id }) => seat_id),
       );
+      await timeoutPayments(
+        client,
+        expired.rows.map(({ id }) => id),
+      );
       for (const row of expired.rows) {
         await appendExpiredEvent(client, row.id, row.seat_id, row.delay_ms);
       }
@@ -110,6 +116,22 @@ export class PostgresHoldExpirationStore implements HoldExpirationStore {
         client.release();
       }
     }
+  }
+}
+
+async function timeoutPayments(client: PoolClient, holdIds: string[]): Promise<void> {
+  if (holdIds.length === 0) return;
+  const timedOut = await client.query<{ id: string }>(
+    `UPDATE payments SET status = 'TIMED_OUT', completed_at = now(), updated_at = now()
+      WHERE hold_id = ANY($1::uuid[]) AND status = 'PENDING' RETURNING id`,
+    [holdIds],
+  );
+  for (const { id } of timedOut.rows) {
+    await client.query(
+      `INSERT INTO payment_transitions (id, payment_id, from_status, to_status, reason)
+       VALUES ($1, $2, 'PENDING', 'TIMED_OUT', 'hold_expired')`,
+      [randomUUID(), id],
+    );
   }
 }
 

@@ -43,6 +43,7 @@ export interface AppConfig {
   rateLimitPerSession: number;
   rateLimitPerIp: number;
   maxActiveHoldsPerUser: number;
+  paymentWebhookSecret: string;
 }
 
 type EnvironmentVariables = Record<string, string | undefined>;
@@ -91,6 +92,8 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
   const redisUrl = required(env, 'REDIS_URL', errors);
   const admissionTokenSecret =
     env.ADMISSION_TOKEN_SECRET?.trim() ?? 'development-only-change-this-secret';
+  const paymentWebhookSecret =
+    env.PAYMENT_WEBHOOK_SECRET?.trim() ?? 'development-payment-webhook-secret';
 
   if (!environments.includes(nodeEnv as Environment)) {
     errors.push(`NODE_ENV must be one of: ${environments.join(', ')}`);
@@ -220,6 +223,7 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
       min: 1,
       max: 1000,
     }),
+    paymentWebhookSecret,
   };
 
   if (nodeEnv === 'production' && admissionTokenSecret === 'development-only-change-this-secret') {
@@ -228,6 +232,11 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
   if (admissionTokenSecret.length < 32) {
     errors.push('ADMISSION_TOKEN_SECRET must contain at least 32 characters');
   }
+  if (nodeEnv === 'production' && paymentWebhookSecret === 'development-payment-webhook-secret') {
+    errors.push('PAYMENT_WEBHOOK_SECRET must be set in production');
+  }
+  if (paymentWebhookSecret.length < 32)
+    errors.push('PAYMENT_WEBHOOK_SECRET must contain at least 32 characters');
   if (errors.length > 0) {
     throw new Error(`Invalid environment configuration:\n- ${errors.join('\n- ')}`);
   }

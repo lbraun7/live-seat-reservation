@@ -1,0 +1,57 @@
+groups:
+  - name: reservation-platform
+    rules:
+      - alert: ApiHighErrorRate
+        expr: sum(rate(http_request_duration_seconds_count{status_code=~"5.."}[5m])) / clamp_min(sum(rate(http_request_duration_seconds_count[5m])), 1) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          {
+            summary: 'API 5xx rate is above 5%',
+            runbook: '/docs/runbooks/observability.md#api-high-error-rate',
+          }
+      - alert: PostgresPoolSaturated
+        expr: postgres_pool_waiting_requests > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          {
+            summary: 'Requests are waiting for PostgreSQL connections',
+            runbook: '/docs/runbooks/observability.md#postgres-pool-saturated',
+          }
+      - alert: ExpirationLagHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(expiration_lag_seconds_bucket[10m]))) > 30
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          {
+            summary: 'p95 hold expiration lag is above 30 seconds',
+            runbook: '/docs/runbooks/observability.md#expiration-lag-high',
+          }
+      - alert: OutboxPublicationGap
+        expr: outbox_oldest_event_age_seconds > 60
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          {
+            summary: 'Oldest unpublished outbox event is over 60 seconds old',
+            runbook: '/docs/runbooks/observability.md#outbox-publication-gap',
+          }
+      - alert: SlowWebsocketClients
+        expr: increase(websocket_dropped_messages_total{reason="slow_client"}[10m]) > 10
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          {
+            summary: 'WebSocket messages are being dropped for slow clients',
+            runbook: '/docs/runbooks/observability.md#slow-websocket-clients',
+          }
+      - alert: EventLoopLagHigh
+        expr: event_loop_lag_seconds{quantile="p99"} > 0.2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          {
+            summary: 'Node.js p99 event-loop lag is above 200ms',
+            runbook: '/docs/runbooks/observability.md#event-loop-lag-high',
+          }

@@ -9,20 +9,31 @@ import {
 import { PostgresHoldExpirationStore } from '../../modules/reservations/infrastructure/postgres-hold-expiration.js';
 import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
+import { ServiceMetrics, startMetricsServer } from '../../shared/observability/metrics.js';
+import { startTracing } from '../../shared/observability/tracing.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const tracing = startTracing('worker', config.otelExporterOtlpEndpoint);
+  const metrics = new ServiceMetrics('worker');
   const database = createDatabasePool(config);
+  metrics.observePool(database);
   const store = new PostgresHoldExpirationStore(database);
   const connection = new Redis(config.redisUrl, {
     connectTimeout: config.redisConnectionTimeoutMs,
     maxRetriesPerRequest: null,
   });
   const deadLetters = new Queue(HOLD_EXPIRATION_DEAD_LETTER_QUEUE, { connection });
+  const expirationQueue = new Queue(HOLD_EXPIRATION_QUEUE, { connection });
+  const metricsServer = await startMetricsServer(metrics, config.host, config.metricsPort ?? 9464);
   const worker = new Worker<HoldExpirationJob>(
     HOLD_EXPIRATION_QUEUE,
     async (job) => {
       const result = await store.expireHold(job.data);
+      if (result.expired) {
+        metrics.expiredHolds.inc({ source: 'job' });
+        metrics.expirationLag.observe({ source: 'job' }, (result.delayMs ?? 0) / 1000);
+      }
       log('info', 'hold expiration job processed', {
         jobId: job.id,
         attemptsMade: job.attemptsMade,
@@ -79,6 +90,8 @@ async function main(): Promise<void> {
         if (expired.length < config.holdReconcilerBatchSize) break;
       }
       if (total > 0) {
+        metrics.expiredHolds.inc({ source: 'reconciler' }, total);
+        metrics.expirationLag.observe({ source: 'reconciler' }, maximumDelayMs / 1000);
         log('info', 'expired holds reconciled', { count: total, maximumDelayMs });
       }
     } catch (error) {
@@ -89,17 +102,34 @@ async function main(): Promise<void> {
   };
   await reconcile();
   const interval = setInterval(() => void reconcile(), config.holdReconcilerIntervalMs);
+  const collectQueues = async (): Promise<void> => {
+    const counts = await expirationQueue.getJobCounts('waiting', 'delayed', 'active', 'failed');
+    for (const [state, count] of Object.entries(counts))
+      metrics.bullmqJobs.set({ queue: HOLD_EXPIRATION_QUEUE, state }, count);
+    const oldest = (await expirationQueue.getWaiting(0, 0))[0];
+    metrics.bullmqJobLag.set(
+      { queue: HOLD_EXPIRATION_QUEUE },
+      oldest ? Math.max(0, Date.now() - oldest.timestamp) / 1000 : 0,
+    );
+  };
+  await collectQueues();
+  const metricsInterval = setInterval(() => void collectQueues().catch(() => undefined), 5000);
 
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
     clearInterval(interval);
+    clearInterval(metricsInterval);
     log('info', 'worker graceful shutdown started', { signal });
     await worker.close();
     await deadLetters.close();
+    await expirationQueue.close();
+    await new Promise<void>((resolve) => metricsServer.close(() => resolve()));
     connection.disconnect();
     await database.end();
+    metrics.close();
+    await tracing?.shutdown();
     log('info', 'worker graceful shutdown completed', { signal });
   };
   process.once('SIGINT', () => void shutdown('SIGINT'));

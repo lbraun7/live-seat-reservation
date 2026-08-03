@@ -13,6 +13,7 @@ import type { WaitingRoom } from '../../modules/waiting-room/domain/waiting-room
 import { registerWaitingRoomRoutes } from '../../modules/waiting-room/transport/http.js';
 import type { Checkout } from '../../modules/checkout/domain/checkout.js';
 import { registerCheckoutRoutes } from '../../modules/checkout/transport/http.js';
+import type { ServiceMetrics } from '../../shared/observability/metrics.js';
 
 const HealthResponse = Type.Object({
   status: Type.Union([Type.Literal('ok'), Type.Literal('unavailable')]),
@@ -30,6 +31,7 @@ export interface BuildAppOptions {
   reservations?: Reservations;
   waitingRoom?: WaitingRoom;
   checkout?: Checkout;
+  metrics?: ServiceMetrics;
 }
 
 export function buildApp({
@@ -39,6 +41,7 @@ export function buildApp({
   reservations,
   waitingRoom,
   checkout,
+  metrics,
 }: BuildAppOptions): FastifyInstance {
   const app = Fastify({
     logger: { level: config.logLevel },
@@ -53,6 +56,34 @@ export function buildApp({
     void reply.header('x-correlation-id', request.id);
     done();
   });
+
+  if (metrics) {
+    app.addHook('onRequest', (request, _reply, done) => {
+      (request as typeof request & { metricsStartedAt?: bigint }).metricsStartedAt =
+        process.hrtime.bigint();
+      done();
+    });
+    app.addHook('onResponse', (request, reply, done) => {
+      const started = (request as typeof request & { metricsStartedAt?: bigint }).metricsStartedAt;
+      const route = request.routeOptions.url ?? 'unmatched';
+      if (started)
+        metrics.httpDuration.observe(
+          { method: request.method, route, status_code: String(reply.statusCode) },
+          Number(process.hrtime.bigint() - started) / 1e9,
+        );
+      if (route === '/events/:eventId/holds' && request.method === 'POST') {
+        const success = reply.statusCode === 201;
+        metrics.holdAttempts.inc({ result: success ? 'success' : 'rejected' });
+        if (reply.statusCode === 409) metrics.holdConflicts.inc({ code: 'conflict' });
+      }
+      done();
+    });
+    app.get('/metrics', async (_request, reply) => {
+      return reply
+        .header('content-type', metrics.registry.contentType)
+        .send(await metrics.content());
+    });
+  }
 
   app.get('/health/live', {
     schema: { response: { 200: HealthResponse } },

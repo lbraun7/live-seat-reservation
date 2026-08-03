@@ -400,14 +400,14 @@ O fluxo completo tolera webhooks duplicados, atrasados e fora de ordem.
 
 ### Tarefas
 
-- [ ] Expor métricas Prometheus.
-- [ ] Criar dashboards Grafana.
-- [ ] Instrumentar traces com OpenTelemetry.
-- [ ] Correlacionar API, transação, job, outbox e broadcast.
-- [ ] Medir uso e fila do pool de conexões.
-- [ ] Monitorar event-loop lag.
-- [ ] Criar alertas e runbooks básicos.
-- [ ] Redigir estratégia de redaction de dados sensíveis nos logs.
+- [x] Expor métricas Prometheus.
+- [x] Criar dashboards Grafana.
+- [x] Instrumentar traces com OpenTelemetry.
+- [x] Correlacionar API, transação, job, outbox e broadcast.
+- [x] Medir uso e fila do pool de conexões.
+- [x] Monitorar event-loop lag.
+- [x] Criar alertas e runbooks básicos.
+- [x] Redigir estratégia de redaction de dados sensíveis nos logs.
 
 ### Métricas mínimas
 

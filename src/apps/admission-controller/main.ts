@@ -2,21 +2,32 @@ import { AdmissionController } from '../../modules/waiting-room/application/admi
 import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
 import { createRedisClient } from '../../shared/redis/client.js';
+import { ServiceMetrics, startMetricsServer } from '../../shared/observability/metrics.js';
+import { startTracing } from '../../shared/observability/tracing.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const tracing = startTracing('admission-controller', config.otelExporterOtlpEndpoint);
+  const metrics = new ServiceMetrics('admission-controller');
   const database = createDatabasePool(config);
+  metrics.observePool(database);
   const redis = createRedisClient(config);
   if (redis.status === 'wait') await redis.connect();
-  const controller = new AdmissionController(redis, database, {
-    eventId: config.waitingRoomEventId,
-    intervalMs: config.admissionControllerIntervalMs,
-    batchSize: config.admissionBatchSize,
-    maxActiveAdmissions: config.maxActiveAdmissions,
-    admissionTtlSeconds: config.admissionTokenTtlSeconds,
-    saturationLatencyMs: config.admissionSaturationLatencyMs,
-    maxExpirationBacklog: config.admissionMaxExpirationBacklog,
-  });
+  const controller = new AdmissionController(
+    redis,
+    database,
+    {
+      eventId: config.waitingRoomEventId,
+      intervalMs: config.admissionControllerIntervalMs,
+      batchSize: config.admissionBatchSize,
+      maxActiveAdmissions: config.maxActiveAdmissions,
+      admissionTtlSeconds: config.admissionTokenTtlSeconds,
+      saturationLatencyMs: config.admissionSaturationLatencyMs,
+      maxExpirationBacklog: config.admissionMaxExpirationBacklog,
+    },
+    metrics,
+  );
+  const metricsServer = await startMetricsServer(metrics, config.host, config.metricsPort ?? 9464);
   controller.start();
 
   let closing = false;
@@ -24,8 +35,11 @@ async function main(): Promise<void> {
     if (closing) return;
     closing = true;
     await controller.close();
+    await new Promise<void>((resolve) => metricsServer.close(() => resolve()));
     await redis.quit().catch(() => redis.disconnect());
     await database.end();
+    metrics.close();
+    await tracing?.shutdown();
   };
   process.once('SIGINT', () => void close());
   process.once('SIGTERM', () => void close());

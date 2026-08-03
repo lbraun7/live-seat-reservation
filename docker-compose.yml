@@ -13,6 +13,7 @@ services:
       SHUTDOWN_TIMEOUT_MS: 10000
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     command:
       [
         'sh',
@@ -50,6 +51,8 @@ services:
       HOLD_RECONCILER_BATCH_SIZE: 100
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
+      METRICS_PORT: 9464
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     command: ['node', 'dist/apps/worker/main.js']
     depends_on:
       api:
@@ -75,6 +78,7 @@ services:
       OUTBOX_METRICS_PORT: 9464
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     command: ['node', 'dist/apps/outbox-relay/main.js']
     ports:
       - '9464:9464'
@@ -104,6 +108,7 @@ services:
       WEBSOCKET_MAX_BUFFERED_BYTES: 1048576
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     command: ['node', 'dist/apps/websocket-gateway/main.js']
     ports:
       - '3001:3001'
@@ -132,6 +137,8 @@ services:
       MAX_ACTIVE_ADMISSIONS: 100
       ADMISSION_TOKEN_TTL_SECONDS: 60
       ADMISSION_MAX_EXPIRATION_BACKLOG: 10000
+      METRICS_PORT: 9464
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
     command: ['node', 'dist/apps/admission-controller/main.js']
     depends_on:
       api:
@@ -172,6 +179,47 @@ services:
       timeout: 3s
       retries: 10
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ['--config.file=/etc/prometheus/prometheus.yml']
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports: ['9090:9090']
+    depends_on: [api, worker, outbox-relay, websocket-gateway, admission-controller]
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: ['-config.file=/etc/tempo.yml']
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports: ['3200:3200']
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.131.1
+    command: ['--config=/etc/otelcol.yml']
+    volumes:
+      - ./observability/otel-collector.yml:/etc/otelcol.yml:ro
+    depends_on: [tempo]
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ['3002:3000']
+    depends_on: [prometheus, tempo]
+
 volumes:
   postgres-data:
   redis-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

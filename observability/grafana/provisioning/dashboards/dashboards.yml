@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: Live Seat Reservation
+    folder: Reservation
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

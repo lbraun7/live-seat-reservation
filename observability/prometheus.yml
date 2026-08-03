@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: api
+    static_configs: [{ targets: ['api:3000'] }]
+  - job_name: worker
+    static_configs: [{ targets: ['worker:9464'] }]
+  - job_name: outbox-relay
+    static_configs: [{ targets: ['outbox-relay:9464'] }]
+  - job_name: websocket-gateway
+    static_configs: [{ targets: ['websocket-gateway:3001'] }]
+  - job_name: admission-controller
+    static_configs: [{ targets: ['admission-controller:9464'] }]

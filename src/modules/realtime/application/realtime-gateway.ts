@@ -11,6 +11,7 @@ import {
   type SeatRealtimeEvent,
 } from '../domain/realtime.js';
 import type { WaitingRoom } from '../../waiting-room/domain/waiting-room.js';
+import type { ServiceMetrics } from '../../../shared/observability/metrics.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -44,6 +45,7 @@ export class RealtimeGateway {
     private readonly subscriber: Redis,
     private readonly options: RealtimeGatewayOptions,
     private readonly waitingRoom?: WaitingRoom,
+    private readonly metrics?: ServiceMetrics,
   ) {
     this.server = createServer((request, response) => {
       if (request.url === '/health/live') {
@@ -55,6 +57,16 @@ export class RealtimeGateway {
         const ready = !this.draining && this.subscriber.status === 'ready';
         response.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
         response.end(JSON.stringify({ status: ready ? 'ready' : 'not_ready' }));
+        return;
+      }
+      if (request.url === '/metrics' && this.metrics) {
+        void this.metrics
+          .content()
+          .then((body) => {
+            response.writeHead(200, { 'content-type': this.metrics?.registry.contentType });
+            response.end(body);
+          })
+          .catch(() => response.writeHead(503).end());
         return;
       }
       response.writeHead(404).end();
@@ -137,12 +149,13 @@ export class RealtimeGateway {
         waitingSessions: new Map(),
       };
       this.clients.set(client, state);
+      this.metrics?.websocketConnections.inc();
       client.on('pong', () => {
         state.alive = true;
       });
       client.on('message', (data, binary) => this.handleClientMessage(client, state, data, binary));
-      client.on('close', () => this.clients.delete(client));
-      client.on('error', () => this.clients.delete(client));
+      client.on('close', () => this.removeClient(client));
+      client.on('error', () => this.removeClient(client));
       this.send(client, { type: 'connected' });
     });
   }
@@ -225,6 +238,8 @@ export class RealtimeGateway {
   };
 
   private broadcast(event: SeatRealtimeEvent): void {
+    const stop = this.metrics?.websocketBroadcastDuration.startTimer();
+    let delivered = false;
     for (const [client, state] of this.clients) {
       const version = state.subscriptions.get(event.eventId);
       if (version === undefined) continue;
@@ -241,8 +256,12 @@ export class RealtimeGateway {
         });
         continue;
       }
-      if (this.send(client, event)) state.subscriptions.set(event.eventId, event.version);
+      if (this.send(client, event)) {
+        delivered = true;
+        state.subscriptions.set(event.eventId, event.version);
+      }
     }
+    stop?.({ result: delivered ? 'delivered' : 'no_subscribers' });
   }
 
   private send(client: WebSocket, message: object): boolean {
@@ -251,6 +270,9 @@ export class RealtimeGateway {
       isSlowClient(client.bufferedAmount, this.options.maxBufferedBytes)
     ) {
       if (client.readyState === WebSocket.OPEN) client.close(1013, 'client too slow');
+      this.metrics?.websocketDroppedMessages.inc({
+        reason: client.readyState === WebSocket.OPEN ? 'slow_client' : 'closed',
+      });
       return false;
     }
     client.send(JSON.stringify(message));
@@ -261,7 +283,7 @@ export class RealtimeGateway {
     for (const [client, state] of this.clients) {
       if (!state.alive) {
         client.terminate();
-        this.clients.delete(client);
+        this.removeClient(client);
         continue;
       }
       state.alive = false;
@@ -270,6 +292,10 @@ export class RealtimeGateway {
         void this.pushWaitingRoomUpdate(client, state, eventId, sessionId);
       }
     }
+  }
+
+  private removeClient(client: WebSocket): void {
+    if (this.clients.delete(client)) this.metrics?.websocketConnections.dec();
   }
 
   private async pushWaitingRoomUpdate(

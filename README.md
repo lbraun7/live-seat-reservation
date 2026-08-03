@@ -189,8 +189,21 @@ Métricas Prometheus do relay:
 curl http://localhost:9464/metrics
 ```
 
-As gauges `outbox_pending_events` e `outbox_oldest_pending_age_seconds` mostram
+As gauges `outbox_pending_events` e `outbox_oldest_event_age_seconds` mostram
 o backlog e a idade do evento pendente mais antigo.
+
+## Observabilidade
+
+O Docker Compose também sobe Prometheus, Grafana, OpenTelemetry Collector e Tempo.
+Abra o Grafana em `http://localhost:3002` (`admin` / `admin` no ambiente local) para usar
+o dashboard provisionado **Live Seat Reservation — Overview** e pesquisar traces. O
+Prometheus fica em `http://localhost:9090`; API e gateway expõem `/metrics` em suas portas.
+
+Métricas cobrem HTTP, tentativas/conflitos de hold, holds ativos, expiração, sala de espera,
+admissão, conexões e backpressure WebSocket, outbox, pool PostgreSQL, BullMQ e event-loop
+lag. Alertas e instruções operacionais estão versionados em `observability/alerts.yml` e
+`docs/runbooks/observability.md`. A estratégia de correlação e redaction está em
+`docs/observability.md`.
 
 ## Atualizações em tempo real
 

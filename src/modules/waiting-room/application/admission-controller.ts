@@ -1,5 +1,6 @@
 import type { Redis } from 'ioredis';
 import type { Pool } from 'pg';
+import type { ServiceMetrics } from '../../../shared/observability/metrics.js';
 
 const ADMIT_SCRIPT = `
 local now = tonumber(ARGV[1])
@@ -41,6 +42,7 @@ export class AdmissionController {
     private readonly redis: Redis,
     private readonly database: Pool,
     private readonly options: AdmissionControllerOptions,
+    private readonly metrics?: ServiceMetrics,
   ) {}
 
   start(): void {
@@ -71,7 +73,7 @@ export class AdmissionController {
         : this.options.batchSize;
     const now = Date.now();
     const expires = now + this.options.admissionTtlSeconds * 1000;
-    return (await this.redis.eval(
+    const admitted = (await this.redis.eval(
       ADMIT_SCRIPT,
       2,
       `waiting-room:event:${this.options.eventId}:queue`,
@@ -82,6 +84,8 @@ export class AdmissionController {
       String(adaptiveBatch),
       `waiting-room:event:${this.options.eventId}:session:`,
     )) as string[];
+    this.metrics?.admissionRate.inc(admitted.length);
+    return admitted;
   }
 
   private async tick(): Promise<void> {
@@ -90,6 +94,9 @@ export class AdmissionController {
     try {
       await this.cleanupAbandoned();
       await this.admitOnce();
+      this.metrics?.waitingRoomSize.set(
+        await this.redis.zcard(`waiting-room:event:${this.options.eventId}:queue`),
+      );
     } finally {
       this.running = false;
     }

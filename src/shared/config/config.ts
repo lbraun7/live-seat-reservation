@@ -24,6 +24,8 @@ export interface AppConfig {
   outboxRelayBatchSize: number;
   outboxRetentionDays: number;
   outboxMetricsPort: number;
+  metricsPort?: number;
+  otelExporterOtlpEndpoint?: string;
   websocketPort: number;
   websocketHeartbeatIntervalMs: number;
   websocketMaxMessageBytes: number;
@@ -153,6 +155,10 @@ export function loadConfig(env: EnvironmentVariables = process.env): AppConfig {
       min: 1,
       max: 65_535,
     }),
+    metricsPort: integer(env, 'METRICS_PORT', 9464, errors, { min: 1, max: 65_535 }),
+    ...(env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim()
+      ? { otelExporterOtlpEndpoint: env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT.trim() }
+      : {}),
     websocketPort: integer(env, 'WEBSOCKET_PORT', 3001, errors, { min: 1, max: 65_535 }),
     websocketHeartbeatIntervalMs: integer(env, 'WEBSOCKET_HEARTBEAT_INTERVAL_MS', 30_000, errors, {
       min: 1000,

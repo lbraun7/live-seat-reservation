@@ -10,10 +10,16 @@ import { AdmissionTokenSigner } from '../../modules/waiting-room/application/adm
 import { RedisWaitingRoom } from '../../modules/waiting-room/infrastructure/redis-waiting-room.js';
 import { FakePaymentProvider } from '../../modules/checkout/infrastructure/fake-payment-provider.js';
 import { PostgresCheckout } from '../../modules/checkout/infrastructure/postgres-checkout.js';
+import { ServiceMetrics } from '../../shared/observability/metrics.js';
+import { startTracing } from '../../shared/observability/tracing.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const tracing = startTracing('api', config.otelExporterOtlpEndpoint);
+  const metrics = new ServiceMetrics('api');
   const database = createDatabasePool(config);
+  metrics.observePool(database);
+  metrics.observeActiveHolds(database);
   const redis = createRedisClient(config);
   const expirationScheduler = new BullMqHoldExpirationScheduler(config);
   const waitingRoom = new RedisWaitingRoom(
@@ -39,6 +45,7 @@ async function main(): Promise<void> {
     ),
     waitingRoom,
     checkout: new PostgresCheckout(database, new FakePaymentProvider()),
+    metrics,
   });
   app.addHook('onClose', async () => expirationScheduler.close());
   let shuttingDown = false;
@@ -56,6 +63,8 @@ async function main(): Promise<void> {
 
     try {
       await app.close();
+      metrics.close();
+      await tracing?.shutdown();
       clearTimeout(timeout);
       app.log.info('graceful shutdown completed');
     } catch (error) {

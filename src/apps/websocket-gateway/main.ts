@@ -3,9 +3,13 @@ import { createRedisClient } from '../../shared/redis/client.js';
 import { RealtimeGateway } from '../../modules/realtime/application/realtime-gateway.js';
 import { AdmissionTokenSigner } from '../../modules/waiting-room/application/admission-token.js';
 import { RedisWaitingRoom } from '../../modules/waiting-room/infrastructure/redis-waiting-room.js';
+import { ServiceMetrics } from '../../shared/observability/metrics.js';
+import { startTracing } from '../../shared/observability/tracing.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const tracing = startTracing('websocket-gateway', config.otelExporterOtlpEndpoint);
+  const metrics = new ServiceMetrics('websocket-gateway');
   const subscriber = createRedisClient(config);
   const waitingRoomRedis = createRedisClient(config);
   const waitingRoom = new RedisWaitingRoom(
@@ -32,6 +36,7 @@ async function main(): Promise<void> {
       drainTimeoutMs: config.shutdownTimeoutMs,
     },
     waitingRoom,
+    metrics,
   );
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
@@ -40,6 +45,8 @@ async function main(): Promise<void> {
     console.info(JSON.stringify({ signal, message: 'websocket gateway draining' }));
     await gateway.close();
     await waitingRoomRedis.quit().catch(() => waitingRoomRedis.disconnect());
+    metrics.close();
+    await tracing?.shutdown();
   };
   process.once('SIGINT', () => void shutdown('SIGINT'));
   process.once('SIGTERM', () => void shutdown('SIGTERM'));

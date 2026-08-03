@@ -3,42 +3,23 @@ import { RedisOutboxPublisher } from '../../modules/outbox/infrastructure/redis-
 import { loadConfig } from '../../shared/config/config.js';
 import { createDatabasePool } from '../../shared/database/client.js';
 import { createRedisClient } from '../../shared/redis/client.js';
+import { ServiceMetrics, startMetricsServer } from '../../shared/observability/metrics.js';
+import { startTracing } from '../../shared/observability/tracing.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  const tracing = startTracing('outbox-relay', config.otelExporterOtlpEndpoint);
+  const serviceMetrics = new ServiceMetrics('outbox-relay');
   const database = createDatabasePool(config);
+  serviceMetrics.observePool(database);
   const redis = createRedisClient(config);
   await redis.connect();
   const relay = new OutboxRelay(database, new RedisOutboxPublisher(redis));
-  const metricsServer = createServer((request, response) => {
-    if (request.url !== '/metrics') {
-      response.writeHead(404).end();
-      return;
-    }
-    void relay
-      .metrics()
-      .then((metrics) => {
-        response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' });
-        response.end(
-          [
-            '# HELP outbox_pending_events Events waiting to be published.',
-            '# TYPE outbox_pending_events gauge',
-            `outbox_pending_events ${String(metrics.pendingCount)}`,
-            '# HELP outbox_oldest_pending_age_seconds Age of the oldest pending event.',
-            '# TYPE outbox_oldest_pending_age_seconds gauge',
-            `outbox_oldest_pending_age_seconds ${String(metrics.oldestPendingAgeMs / 1000)}`,
-            '',
-          ].join('\n'),
-        );
-      })
-      .catch((error: unknown) => {
-        response.writeHead(503).end(errorMessage(error));
-      });
-  });
-  await new Promise<void>((resolve, reject) => {
-    metricsServer.once('error', reject);
-    metricsServer.listen(config.outboxMetricsPort, config.host, resolve);
-  });
+  const metricsServer = await startMetricsServer(
+    serviceMetrics,
+    config.host,
+    config.outboxMetricsPort,
+  );
   let running = false;
 
   const tick = async (): Promise<void> => {
@@ -50,6 +31,8 @@ async function main(): Promise<void> {
         processed = await relay.relayBatch(config.outboxRelayBatchSize);
       } while (processed === config.outboxRelayBatchSize);
       const metrics = await relay.metrics();
+      serviceMetrics.outboxPending.set(metrics.pendingCount);
+      serviceMetrics.outboxOldestAge.set(metrics.oldestPendingAgeMs / 1000);
       const archived = await relay.archivePublished(
         config.outboxRetentionDays,
         config.outboxRelayBatchSize,
@@ -78,6 +61,8 @@ async function main(): Promise<void> {
     });
     redis.disconnect();
     await database.end();
+    serviceMetrics.close();
+    await tracing?.shutdown();
     log('info', 'outbox relay graceful shutdown completed', { signal });
   };
   process.once('SIGINT', () => void shutdown('SIGINT'));
@@ -102,4 +87,3 @@ main().catch((error: unknown) => {
   log('error', 'outbox relay startup failed', { error: errorMessage(error) });
   process.exitCode = 1;
 });
-import { createServer } from 'node:http';

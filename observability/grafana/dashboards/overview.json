@@ -1,0 +1,92 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "HTTP p95 (seconds)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hold attempts and conflicts",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (result) (rate(hold_attempts_total[5m]))",
+          "legendFormat": "attempt {{result}}"
+        },
+        { "expr": "sum(rate(hold_conflicts_total[5m]))", "legendFormat": "conflicts" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "PostgreSQL pool",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        { "expr": "postgres_pool_connections", "legendFormat": "{{service}} {{state}}" },
+        { "expr": "postgres_pool_waiting_requests", "legendFormat": "{{service}} waiting" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Expiration and BullMQ lag",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(expiration_lag_seconds_bucket[5m])))",
+          "legendFormat": "expiration p95"
+        },
+        { "expr": "bullmq_job_lag_seconds", "legendFormat": "job lag" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox backlog",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "targets": [
+        { "expr": "outbox_pending_events", "legendFormat": "pending" },
+        { "expr": "outbox_oldest_event_age_seconds", "legendFormat": "oldest age" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "WebSocket clients and drops",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        { "expr": "websocket_connections", "legendFormat": "connections" },
+        { "expr": "rate(websocket_dropped_messages_total[5m])", "legendFormat": "drops {{reason}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Waiting room and admission",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "waiting_room_size", "legendFormat": "waiting" },
+        { "expr": "rate(admission_rate[1m])", "legendFormat": "admitted/s" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Event-loop p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "event_loop_lag_seconds{quantile=\"p99\"}", "legendFormat": "{{service}}" }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["reservation", "phase-9"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Live Seat Reservation — Overview",
+  "uid": "reservation-overview",
+  "version": 1
+}

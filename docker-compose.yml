@@ -217,6 +217,25 @@ services:
     ports: ['3002:3000']
     depends_on: [prometheus, tempo]
 
+  k6:
+    image: grafana/k6:0.57.0
+    profiles: [load-test]
+    environment:
+      API_URL: http://api:3000
+      WS_URL: ws://websocket-gateway:3001/ws
+      EVENT_ID: 10000000-0000-4000-8000-000000000001
+      SECTION_ID: 20000000-0000-4000-8000-000000000001
+      SECTION_IDS: 20000000-0000-4000-8000-000000000002,20000000-0000-4000-8000-000000000003
+      RESULTS_DIR: /results
+    volumes:
+      - ./load-tests:/scripts:ro
+      - ./load-tests/results:/results
+    depends_on:
+      api:
+        condition: service_healthy
+      websocket-gateway:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:

@@ -238,6 +238,9 @@ fecha as conexões com código `1012`.
 | `npm run migrate`                    | Aplica migrations pendentes com lock no PostgreSQL  |
 | `npm run seed`                       | Cria o evento de demonstração e 3.000 assentos      |
 | `npm run test:integration`           | Testa invariantes contra PostgreSQL real            |
+| `npm run load:test -- <cenário>`     | Executa cenário k6 e auditoria de overselling       |
+| `npm run load:chaos -- <falha>`      | Injeta falha durante carga e audita a recuperação   |
+| `npm run load:audit`                 | Audita invariantes persistidos no PostgreSQL        |
 | `npm run check`                      | Lint, formatação, tipos, testes e build             |
 | `npm start`                          | Executa o build de produção                         |
 | `npm run start:worker`               | Executa o worker compilado                          |
@@ -250,3 +253,6 @@ fecha as conexões com código `1012`.
 O processo trata `SIGINT` e `SIGTERM`, para de aceitar requisições e encerra as conexões com PostgreSQL e Redis antes de sair.
 
 Consulte o [ROADMAP.md](./ROADMAP.md) para as próximas fases.
+
+O guia reproduzível da Fase 10, matriz de falhas, consultas e modelo de relatório estão em
+[`docs/load-testing.md`](./docs/load-testing.md).

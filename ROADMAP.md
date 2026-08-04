@@ -438,17 +438,17 @@ O fluxo completo tolera webhooks duplicados, atrasados e fora de ordem.
 
 ### Cenários k6
 
-- [ ] Milhares de usuários reservando assentos distintos.
-- [ ] Milhares de usuários disputando o mesmo assento.
-- [ ] Spike de entrada na sala de espera.
-- [ ] Reconnect storm no WebSocket.
-- [ ] Redis indisponível durante reservas.
-- [ ] Worker indisponível por vários minutos.
-- [ ] API reiniciada durante a criação de holds.
-- [ ] Outbox relay interrompido após commits.
-- [ ] Eventos e jobs entregues mais de uma vez.
-- [ ] Pool PostgreSQL saturado.
-- [ ] Clientes WebSocket deliberadamente lentos.
+- [x] Milhares de usuários reservando assentos distintos.
+- [x] Milhares de usuários disputando o mesmo assento.
+- [x] Spike de entrada na sala de espera.
+- [x] Reconnect storm no WebSocket.
+- [x] Redis indisponível durante reservas.
+- [x] Worker indisponível por vários minutos.
+- [x] API reiniciada durante a criação de holds.
+- [x] Outbox relay interrompido após commits.
+- [x] Eventos e jobs entregues mais de uma vez.
+- [x] Pool PostgreSQL saturado.
+- [x] Clientes WebSocket deliberadamente lentos.
 
 ### Resultados a registrar
 

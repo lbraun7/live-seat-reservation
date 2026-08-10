@@ -15,10 +15,24 @@ async function main(): Promise<void> {
   const redis = createRedisClient(config);
   await redis.connect();
   const relay = new OutboxRelay(database, new RedisOutboxPublisher(redis));
+  let shuttingDown = false;
   const metricsServer = await startMetricsServer(
     serviceMetrics,
     config.host,
     config.outboxMetricsPort,
+    {
+      isDraining: () => shuttingDown,
+      check: async () => {
+        const [databaseHealth, redisHealth] = await Promise.allSettled([
+          database.query('SELECT 1'),
+          redis.ping(),
+        ]);
+        return {
+          database: databaseHealth.status === 'fulfilled',
+          redis: redisHealth.status === 'fulfilled',
+        };
+      },
+    },
   );
   let running = false;
 
@@ -49,7 +63,6 @@ async function main(): Promise<void> {
 
   await tick();
   const interval = setInterval(() => void tick(), config.outboxRelayIntervalMs);
-  let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;

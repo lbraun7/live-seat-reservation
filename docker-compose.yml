@@ -1,6 +1,37 @@
 services:
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment: &application-environment
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      DATABASE_URL: postgresql://reservation:reservation@postgres:5432/reservation
+      REDIS_URL: redis://redis:6379
+      DATABASE_CONNECTION_TIMEOUT_MS: 2000
+      REDIS_CONNECTION_TIMEOUT_MS: 2000
+      ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
+      PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  seed:
+    build:
+      context: .
+      target: seed
+    environment: *application-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
   api:
-    build: .
+    build:
+      context: .
+      target: api
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -14,17 +45,11 @@ services:
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-    command:
-      [
-        'sh',
-        '-c',
-        'node dist/shared/database/migrate.js && node dist/apps/seed/main.js && node dist/apps/api/main.js',
-      ]
     ports:
       - '3000:3000'
     depends_on:
-      postgres:
-        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
@@ -36,7 +61,9 @@ services:
     stop_grace_period: 15s
 
   worker:
-    build: .
+    build:
+      context: .
+      target: worker
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
@@ -53,18 +80,25 @@ services:
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
       METRICS_PORT: 9464
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-    command: ['node', 'dist/apps/worker/main.js']
     depends_on:
-      api:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     stop_grace_period: 15s
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9464/health/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   outbox-relay:
-    build: .
+    build:
+      context: .
+      target: outbox-relay
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
@@ -79,20 +113,27 @@ services:
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-    command: ['node', 'dist/apps/outbox-relay/main.js']
     ports:
       - '9464:9464'
     depends_on:
-      api:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     stop_grace_period: 15s
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9464/health/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   websocket-gateway:
-    build: .
+    build:
+      context: .
+      target: websocket-gateway
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -109,7 +150,6 @@ services:
       ADMISSION_TOKEN_SECRET: local-development-admission-secret-change-me
       PAYMENT_WEBHOOK_SECRET: local-development-payment-webhook-secret
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-    command: ['node', 'dist/apps/websocket-gateway/main.js']
     ports:
       - '3001:3001'
     depends_on:
@@ -124,7 +164,9 @@ services:
     stop_grace_period: 15s
 
   admission-controller:
-    build: .
+    build:
+      context: .
+      target: admission-controller
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://reservation:reservation@postgres:5432/reservation
@@ -139,15 +181,20 @@ services:
       ADMISSION_MAX_EXPIRATION_BACKLOG: 10000
       METRICS_PORT: 9464
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
-    command: ['node', 'dist/apps/admission-controller/main.js']
     depends_on:
-      api:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     stop_grace_period: 15s
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:9464/health/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   postgres:
     image: postgres:17-alpine

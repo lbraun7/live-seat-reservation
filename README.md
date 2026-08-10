@@ -9,7 +9,8 @@ Sistema de reserva de assentos para flash sales, construído como monólito modu
 
 ## Executar localmente
 
-Toda a stack, incluindo migrations e API, sobe com um comando:
+Toda a stack sobe com um comando. O Compose executa `migrate` e `seed` como jobs one-shot;
+a API só inicia depois que ambos concluem com sucesso:
 
 ```bash
 docker compose up --build
@@ -256,3 +257,19 @@ Consulte o [ROADMAP.md](./ROADMAP.md) para as próximas fases.
 
 O guia reproduzível da Fase 10, matriz de falhas, consultas e modelo de relatório estão em
 [`docs/load-testing.md`](./docs/load-testing.md).
+
+## Deploy e material de apresentação
+
+O Dockerfile possui alvos independentes para `api`, `worker`, `outbox-relay`,
+`websocket-gateway`, `admission-controller`, `migrate` e `seed`. Todos os processos longos
+expõem liveness/readiness e fazem draining ao receber SIGTERM; migrations usam advisory lock
+e bloqueiam o restante do deploy quando falham.
+
+- [Arquitetura e sequências](./docs/architecture.md)
+- [Threat model](./docs/threat-model.md)
+- [Capacity planning](./docs/capacity-planning.md)
+- [Modos de falha](./docs/failure-modes.md)
+- [Runbook de incidentes](./docs/runbooks/incidents.md)
+- [ADRs](./docs/adrs/001-postgresql-source-of-truth.md)
+- [Resultados e protocolo de carga](./docs/load-test-results.md)
+- [Demonstração de disputa concorrente](./docs/demo.md)

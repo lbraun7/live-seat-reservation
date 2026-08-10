@@ -25,7 +25,20 @@ async function main(): Promise<void> {
   });
   const deadLetters = new Queue(HOLD_EXPIRATION_DEAD_LETTER_QUEUE, { connection });
   const expirationQueue = new Queue(HOLD_EXPIRATION_QUEUE, { connection });
-  const metricsServer = await startMetricsServer(metrics, config.host, config.metricsPort ?? 9464);
+  let shuttingDown = false;
+  const metricsServer = await startMetricsServer(metrics, config.host, config.metricsPort ?? 9464, {
+    isDraining: () => shuttingDown,
+    check: async () => {
+      const [databaseHealth, redisHealth] = await Promise.allSettled([
+        database.query('SELECT 1'),
+        connection.ping(),
+      ]);
+      return {
+        database: databaseHealth.status === 'fulfilled',
+        redis: redisHealth.status === 'fulfilled',
+      };
+    },
+  });
   const worker = new Worker<HoldExpirationJob>(
     HOLD_EXPIRATION_QUEUE,
     async (job) => {
@@ -115,7 +128,6 @@ async function main(): Promise<void> {
   await collectQueues();
   const metricsInterval = setInterval(() => void collectQueues().catch(() => undefined), 5000);
 
-  let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;

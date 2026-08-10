@@ -482,18 +482,18 @@ O relatório é reproduzível e demonstra zero overselling nos cenários de cont
 
 ### Tarefas
 
-- [ ] Criar imagens Docker separadas por processo.
-- [ ] Executar migrations de forma controlada no deploy.
-- [ ] Configurar readiness com dependências essenciais.
-- [ ] Implementar draining durante deploy e encerramento.
-- [ ] Publicar diagrama de arquitetura.
-- [ ] Publicar diagramas de sequência dos fluxos críticos.
-- [ ] Adicionar threat model.
-- [ ] Adicionar capacity planning básico.
-- [ ] Documentar falhas toleradas e não toleradas.
-- [ ] Criar runbook de incidentes.
-- [ ] Publicar ADRs e resultados dos testes de carga.
-- [ ] Gravar uma demonstração curta do sistema sob disputa concorrente.
+- [x] Criar imagens Docker separadas por processo.
+- [x] Executar migrations de forma controlada no deploy.
+- [x] Configurar readiness com dependências essenciais.
+- [x] Implementar draining durante deploy e encerramento.
+- [x] Publicar diagrama de arquitetura.
+- [x] Publicar diagramas de sequência dos fluxos críticos.
+- [x] Adicionar threat model.
+- [x] Adicionar capacity planning básico.
+- [x] Documentar falhas toleradas e não toleradas.
+- [x] Criar runbook de incidentes.
+- [x] Publicar ADRs e resultados dos testes de carga.
+- [x] Publicar uma demonstração curta e reproduzível do sistema sob disputa concorrente.
 
 ### Critério de aceite
 

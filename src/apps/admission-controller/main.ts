@@ -27,10 +27,22 @@ async function main(): Promise<void> {
     },
     metrics,
   );
-  const metricsServer = await startMetricsServer(metrics, config.host, config.metricsPort ?? 9464);
+  let closing = false;
+  const metricsServer = await startMetricsServer(metrics, config.host, config.metricsPort ?? 9464, {
+    isDraining: () => closing,
+    check: async () => {
+      const [databaseHealth, redisHealth] = await Promise.allSettled([
+        database.query('SELECT 1'),
+        redis.ping(),
+      ]);
+      return {
+        database: databaseHealth.status === 'fulfilled',
+        redis: redisHealth.status === 'fulfilled',
+      };
+    },
+  });
   controller.start();
 
-  let closing = false;
   const close = async (): Promise<void> => {
     if (closing) return;
     closing = true;

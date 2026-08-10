@@ -177,12 +177,32 @@ export async function startMetricsServer(
   metrics: ServiceMetrics,
   host: string,
   port: number,
+  health: {
+    isDraining: () => boolean;
+    check: () => Promise<Record<string, boolean>>;
+  },
 ): Promise<Server> {
   const server = createServer((request, response) => {
-    if (request.url !== '/metrics') {
-      response.writeHead(404).end();
+    if (request.url === '/health/live') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"status":"ok"}');
       return;
     }
+    if (request.url === '/health/ready') {
+      void health
+        .check()
+        .then((checks) => {
+          const ready = !health.isDraining() && Object.values(checks).every(Boolean);
+          response.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ status: ready ? 'ready' : 'not_ready', checks }));
+        })
+        .catch(() => {
+          response.writeHead(503, { 'content-type': 'application/json' });
+          response.end('{"status":"not_ready","checks":{}}');
+        });
+      return;
+    }
+    if (request.url !== '/metrics') return void response.writeHead(404).end();
     void metrics
       .content()
       .then((body) => {

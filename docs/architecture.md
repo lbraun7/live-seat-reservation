@@ -1,12 +1,10 @@
-# Arquitetura
+# Architecture
 
-O sistema é um monólito modular distribuído em processos especializados. PostgreSQL é a
-fonte da verdade das reservas; Redis é deliberadamente descartável para fila, jobs e
-broadcast. Todos os comandos críticos terminam em constraints e transações no PostgreSQL.
+The system is a modular monolith distributed across specialized processes. PostgreSQL is the source of truth for reservations; Redis is deliberately disposable and supports queues, jobs, and broadcasts. Every critical command ultimately relies on PostgreSQL transactions and constraints.
 
 ```mermaid
 flowchart LR
-  C[Cliente HTTP] --> API[API]
+  C[HTTP client] --> API[API]
   C <--> WS[WebSocket gateway]
   API --> PG[(PostgreSQL)]
   API --> R[(Redis)]
@@ -22,77 +20,75 @@ flowchart LR
   OT --> G[Grafana / Tempo]
 ```
 
-## Processos e escala
+## Processes and scaling
 
-| Processo             | Estado essencial para readiness | Unidade de escala          |
-| -------------------- | ------------------------------- | -------------------------- |
-| API                  | PostgreSQL e Redis              | requisições HTTP           |
-| WebSocket gateway    | Redis subscriber                | conexões persistentes      |
-| Expiration worker    | PostgreSQL e Redis/BullMQ       | jobs e atraso de expiração |
-| Outbox relay         | PostgreSQL e Redis              | backlog da outbox          |
-| Admission controller | PostgreSQL e Redis              | tamanho/tempo da fila      |
-| migrate / seed       | PostgreSQL                      | jobs one-shot de deploy    |
+| Process              | Essential readiness state   | Scaling unit              |
+| -------------------- | --------------------------- | ------------------------- |
+| API                  | PostgreSQL and Redis        | HTTP requests             |
+| WebSocket gateway    | Redis subscriber            | persistent connections    |
+| Expiration worker    | PostgreSQL and Redis/BullMQ | jobs and expiration delay |
+| Outbox relay         | PostgreSQL and Redis        | outbox backlog            |
+| Admission controller | PostgreSQL and Redis        | queue size/wait time      |
+| migrate / seed       | PostgreSQL                  | one-shot deployment jobs  |
 
-API, relay, worker e controlador podem ter múltiplas réplicas. `FOR UPDATE SKIP LOCKED`,
-scripts Lua, transições condicionais e idempotência tornam a coordenação segura. O gateway
-é stateless em relação ao estado autoritativo; reconexões recuperam snapshots pela API.
+The API, relay, worker, and controller can run multiple replicas. `FOR UPDATE SKIP LOCKED`, Lua scripts, conditional transitions, and idempotency provide safe coordination. The gateway is stateless with respect to authoritative data; reconnecting clients recover snapshots through the API.
 
-## Sequências críticas
+## Critical sequences
 
-### Hold concorrente
+### Concurrent hold
 
 ```mermaid
 sequenceDiagram
-  participant A as Cliente A
-  participant B as Cliente B
+  participant A as Client A
+  participant B as Client B
   participant API
   participant DB as PostgreSQL
-  par mesma cadeira
+  par same seat
     A->>API: POST hold (idempotency-key A)
     B->>API: POST hold (idempotency-key B)
   end
-  API->>DB: transação + lock/constraint
-  DB-->>API: um hold ACTIVE
-  API->>DB: transação concorrente
-  DB-->>API: conflito
-  API-->>A: 201 (vencedor possível)
-  API-->>B: 409 (perdedor possível)
+  API->>DB: transaction + lock/constraint
+  DB-->>API: one ACTIVE hold
+  API->>DB: concurrent transaction
+  DB-->>API: conflict
+  API-->>A: 201 (possible winner)
+  API-->>B: 409 (possible loser)
 ```
 
-### Confirmação, outbox e broadcast
+### Confirmation, outbox, and broadcast
 
 ```mermaid
 sequenceDiagram
-  participant C as Cliente
+  participant C as Client
   participant API
   participant DB as PostgreSQL
   participant R as Outbox relay
   participant Redis
   participant WS as WebSocket gateway
-  C->>API: confirmar hold
-  API->>DB: UPDATE hold/seat + INSERT outbox (uma transação)
+  C->>API: confirm hold
+  API->>DB: UPDATE hold/seat + INSERT outbox (one transaction)
   DB-->>API: commit
-  API-->>C: confirmado
+  API-->>C: confirmed
   R->>DB: SELECT FOR UPDATE SKIP LOCKED
   R->>Redis: publish eventId/version
-  Redis->>WS: evento
+  Redis->>WS: event
   WS-->>C: seat.updated
-  R->>DB: marca publicado
-  Note over R,DB: queda antes da marca pode republicar; consumidores deduplicam
+  R->>DB: mark as published
+  Note over R,DB: a crash before marking may republish; consumers deduplicate
 ```
 
-### Expiração versus pagamento
+### Expiration versus payment
 
 ```mermaid
 sequenceDiagram
   participant W as Worker/Reconciler
-  participant P as Webhook pagamento
+  participant P as Payment webhook
   participant DB as PostgreSQL
-  par corrida
-    W->>DB: expirar se ACTIVE e expires_at <= now()
-    P->>DB: confirmar se ACTIVE
+  par race
+    W->>DB: expire if ACTIVE and expires_at <= now()
+    P->>DB: confirm if ACTIVE
   end
-  DB-->>W: uma transição terminal vence
-  DB-->>P: confirmação ou LATE_SUCCEEDED
-  Note over DB: lock e predicado de estado impedem venda após expiração
+  DB-->>W: one terminal transition wins
+  DB-->>P: confirmation or LATE_SUCCEEDED
+  Note over DB: locks and state predicates prevent sales after expiration
 ```

@@ -1,275 +1,423 @@
 # Live Seat Reservation
 
-Sistema de reserva de assentos para flash sales, construído como monólito modular em Node.js e TypeScript. O PostgreSQL será a fonte da verdade; Redis apoia coordenação e desempenho.
+A high-demand event seat reservation backend designed to demonstrate how to prevent **overselling** when hundreds of clients compete for the same seat.
 
-## Requisitos
+This project goes beyond CRUD. It combines transactional concurrency, idempotency, a distributed waiting room, resilient hold expiration, asynchronous payments, the Transactional Outbox pattern, WebSockets, metrics, traces, and load testing. It is implemented as a **modular monolith running as specialized processes**, with PostgreSQL as the source of truth.
 
-- Node.js 22+
-- Docker com Docker Compose
+> Backend portfolio project. There is no frontend: the flows are exercised through HTTP, WebSocket, automated tests, and k6.
 
-## Executar localmente
+## What this project demonstrates
 
-Toda a stack sobe com um comando. O Compose executa `migrate` e `seed` como jobs one-shot;
-a API só inicia depois que ambos concluem com sucesso:
+- zero overselling enforced by PostgreSQL constraints, locks, and transactions;
+- 100 concurrent requests for the same seat with exactly one winner;
+- idempotent commands, including detection of keys reused with a different payload;
+- a distributed Redis waiting room with limited admission and controlled-use HMAC tokens;
+- hold expiration through BullMQ plus database reconciliation after failures;
+- simulated payments with signed webhooks, deduplication, and late-event handling;
+- reliable event publication through Transactional Outbox, without dual writes;
+- versioned WebSocket updates with HTTP snapshot resynchronization;
+- health checks, graceful shutdown, correlated logs, Prometheus, Grafana, and Tempo;
+- unit, integration, concurrency, load, resilience, and SQL invariant tests.
+
+## Tech stack
+
+Node.js 22, strict TypeScript, Fastify, PostgreSQL 17, Redis 7, BullMQ, WebSocket (`ws`), TypeBox, Vitest, k6, OpenTelemetry, Prometheus, Grafana, Tempo, and Docker Compose.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Client["HTTP / WS client"] --> API["Fastify API"]
+  Client <--> WS["WebSocket gateway"]
+  API --> PG[("PostgreSQL\nsource of truth")]
+  API --> Redis[("Redis\nqueue and coordination")]
+  API --> Queue["BullMQ"]
+  Queue --> Worker["Expiration worker"]
+  Worker --> PG
+  Reconciler["Reconciler"] --> PG
+  Admission["Admission controller"] --> Redis
+  Admission --> PG
+  PG --> Outbox["Outbox relay"]
+  Outbox --> Redis
+  Redis --> WS
+  API & Worker & Admission & Outbox & WS --> Obs["OpenTelemetry / Prometheus"]
+  Obs --> Grafana["Grafana / Tempo"]
+```
+
+### Why a modular monolith?
+
+The domain remains in a single codebase, with modules isolated by responsibility, while workloads run as processes with different scaling characteristics. The API, worker, relay, gateway, and admission controller can be deployed and scaled independently without introducing the operational overhead of multiple repositories or fully independent services.
+
+```text
+src/
+├── apps/                     # process entry points
+│   ├── api/
+│   ├── worker/
+│   ├── outbox-relay/
+│   ├── websocket-gateway/
+│   ├── admission-controller/
+│   └── seed/
+├── modules/
+│   ├── catalog/              # events and seat-map snapshots
+│   ├── reservations/         # hold, confirm, cancel, and expire
+│   ├── checkout/             # payments, webhooks, and orders
+│   ├── waiting-room/         # queue, admission, and rate limits
+│   ├── outbox/               # reliable event publishing
+│   └── realtime/             # real-time update contracts
+└── shared/                   # config, database, Redis, health, observability
+```
+
+Each module separates the following layers when needed:
+
+- `domain`: business contracts, states, and errors;
+- `application`: use cases and orchestration;
+- `infrastructure`: PostgreSQL, Redis, and BullMQ adapters;
+- `transport`: HTTP adapters.
+
+### Processes
+
+| Process                | Responsibility                                              | Scaling unit             |
+| ---------------------- | ----------------------------------------------------------- | ------------------------ |
+| `api`                  | catalog, waiting room, reservations, checkout, and webhooks | HTTP requests            |
+| `websocket-gateway`    | seat broadcasts and waiting-room positions                  | persistent connections   |
+| `worker`               | expiration jobs and reconciliation                          | job backlog and delay    |
+| `outbox-relay`         | publishes persisted events to Redis                         | outbox backlog           |
+| `admission-controller` | admits batches without exceeding capacity                   | queue size and wait time |
+| `migrate` / `seed`     | prepares the schema and demo data                           | one-shot jobs            |
+
+## How it works
+
+### 1. Catalog
+
+The seed job creates one event with three sections and 3,000 seats. The API returns event metadata and section-based paginated snapshots. Each snapshot carries a monotonic version so clients can detect gaps in real-time updates.
+
+### 2. Waiting room
+
+Before creating a hold, a user joins a Redis ZSET queue. The `admission-controller` runs an atomic Lua script that removes expired admissions, respects the global capacity, and admits the next batch. The batch size is reduced when PostgreSQL latency or connection-pool pressure increases.
+
+The HMAC token issued after admission is bound to a user, event, and session. It expires, is subject to rate limits, and is consumed against the idempotency key used to create the reservation.
+
+### 3. Reservation without overselling
+
+Hold creation runs inside a database transaction. PostgreSQL locks the required state, and the partial `holds_one_active_per_seat` constraint prevents more than one active hold for the same seat. The per-user active-hold limit is also applied atomically.
+
+Confirmation, cancellation, and expiration use conditional state transitions. During a race, only one terminal transition can win. The uniqueness of `order_items.seat_id` provides a second barrier against duplicate sales.
+
+### 4. Resilient expiration
+
+When a hold is created, the API schedules its expiration in BullMQ. The worker releases the seat when the deadline—calculated using PostgreSQL's clock—is reached. Because Redis or an individual job may fail, a reconciler also scans expired holds directly from PostgreSQL using `FOR UPDATE SKIP LOCKED`. Losing a job therefore cannot lock a seat forever.
+
+### 5. Checkout and payment
+
+The fake provider creates a `PENDING` payment. Its webhook is authenticated with HMAC-SHA256, deduplicated by `eventId`, and processed transactionally. Success confirms the payment, hold, seat, and order. Failure, cancellation, or timeout releases the seat. A success received after a terminal state becomes `LATE_SUCCEEDED`: the seat is not sold, and the payment is explicitly flagged for a refund.
+
+### 6. Outbox and real-time updates
+
+A reservation change writes both the new state and its event to `outbox_events` in the same transaction. The relay claims batches with `FOR UPDATE SKIP LOCKED` and publishes them through Redis Pub/Sub. Delivery is at least once, so every envelope has a stable `eventId`, and an idempotent consumer implementation is available.
+
+The gateway sends `seat.updated`. If versions are not contiguous, it sends `resync.required`, and the client must fetch a fresh HTTP snapshot. WebSocket improves responsiveness but is never the source of truth.
+
+## Core decisions and invariants
+
+- PostgreSQL decides the winner; Redis does not guarantee reservation correctness.
+- A seat has at most one active hold and can appear in at most one order item.
+- Expiration time comes from the database to avoid clock drift between processes.
+- Retries use idempotency keys; reusing a key with another payload fails.
+- Messages and jobs are treated as potentially duplicated.
+- A crash between outbox publishing and acknowledgment may duplicate an event but cannot lose the persisted event.
+- WebSocket clients recover from inconsistencies through versioned snapshots.
+
+See [docs/architecture.md](docs/architecture.md), the [ADRs](docs/adrs), and the [threat model](docs/threat-model.md) for more detail.
+
+## Run with Docker
+
+### Requirements
+
+- Docker with Docker Compose;
+- ports `3000`, `3001`, `3002`, `5432`, `6379`, `9090`, `9464`, and `3200` available.
+
+Start the complete stack:
 
 ```bash
 docker compose up --build
 ```
 
-Para desenvolver a API localmente com reload automático:
+`migrate` and `seed` are idempotent one-shot jobs. The API only starts after both complete successfully.
+
+In another terminal, verify the deployment:
+
+```bash
+docker compose ps
+curl --fail http://localhost:3000/health/live
+curl --fail http://localhost:3000/health/ready
+```
+
+| Service       | Address                                     |
+| ------------- | ------------------------------------------- |
+| API           | `http://localhost:3000`                     |
+| WebSocket     | `ws://localhost:3001/ws`                    |
+| Relay metrics | `http://localhost:9464/metrics`             |
+| Prometheus    | `http://localhost:9090`                     |
+| Grafana       | `http://localhost:3002` (`admin` / `admin`) |
+| Tempo         | `http://localhost:3200`                     |
+
+Stop the stack while preserving its volumes:
+
+```bash
+docker compose down
+```
+
+Use `docker compose down -v` only when you intentionally want to delete local data and start over.
+
+## Local development
 
 ```bash
 cp .env.example .env
-npm install
+npm ci
 docker compose up -d postgres redis
 npm run migrate
+npm run seed
+```
+
+Start each workload in a separate terminal:
+
+```bash
 npm run dev
-```
-
-Em outro terminal, inicie o worker de expiração:
-
-```bash
 npm run dev:worker
-```
-
-E o relay da Transactional Outbox:
-
-```bash
 npm run dev:outbox-relay
-```
-
-E o gateway de atualizações em tempo real:
-
-```bash
 npm run dev:websocket-gateway
-```
-
-E o controlador da sala de espera:
-
-```bash
 npm run dev:admission-controller
 ```
 
-A API fica disponível em `http://localhost:3000`.
+## Step-by-step testing guide
+
+### Option A — quick portfolio demo
+
+With the complete stack running:
 
 ```bash
-curl http://localhost:3000/health/live
-curl http://localhost:3000/health/ready
+./scripts/demo-concurrency.sh
 ```
 
-- `GET /health/live` confirma que o processo está respondendo.
-- `GET /health/ready` retorna `200` somente se PostgreSQL e Redis responderem; caso contrário, retorna `503`.
-- Toda resposta inclui `x-correlation-id`. Um valor enviado pelo cliente nesse header é preservado quando tem até 128 caracteres.
+The script checks the containers, runs a concentrated k6 race for the same seat, and executes the SQL invariant audit. The key expected result is `oversold_seats=0`. Results are saved to `load-tests/results/`.
 
-## Catálogo e mapa de assentos
+### Option B — complete manual flow
 
-O startup do Docker Compose aplica as migrations e cria, de forma idempotente, um evento
-de demonstração com três seções e 3.000 assentos:
+Set the fixed IDs created by the seed job:
 
 ```bash
+API_URL=http://localhost:3000
 EVENT_ID=10000000-0000-4000-8000-000000000001
 SECTION_ID=20000000-0000-4000-8000-000000000001
-
-curl "http://localhost:3000/events/$EVENT_ID"
-curl "http://localhost:3000/events/$EVENT_ID/seats?sectionId=$SECTION_ID&limit=200"
+USER_ID=40000000-0000-4000-8000-000000000001
 ```
 
-O mapa é paginado por seção. Para buscar a página seguinte, envie o `nextCursor` retornado
-como query parameter `cursor`. Cada snapshot contém uma versão monotônica do evento, que
-permite ao cliente detectar mudanças e ressincronizar o mapa.
-
-## Reservas
-
-Comandos de reserva exigem um usuário UUID em `x-user-id` e uma chave de idempotência.
-Para criar um hold, o cliente também precisa passar primeiro pela sala de espera e enviar o
-token de admissão:
+1. Query the event and available seats:
 
 ```bash
-USER_ID=40000000-0000-4000-8000-000000000001
-SEAT_ID=30000000-0000-4000-8000-000000000001
+curl "$API_URL/events/$EVENT_ID"
+curl "$API_URL/events/$EVENT_ID/seats?sectionId=$SECTION_ID&limit=3"
+```
 
-curl -X POST "http://localhost:3000/events/$EVENT_ID/waiting-room" \
+Copy the `id` of an `AVAILABLE` seat from the second response into `SEAT_ID`.
+
+2. Join the waiting room:
+
+```bash
+curl -X POST "$API_URL/events/$EVENT_ID/waiting-room" \
   -H "x-user-id: $USER_ID"
+```
 
-# Envie heartbeat até a resposta conter token:
+Copy `sessionId` into `SESSION_ID`. Send heartbeats until the response contains a `token`:
+
+```bash
 curl -X POST \
-  "http://localhost:3000/events/$EVENT_ID/waiting-room/$SESSION_ID/heartbeat" \
+  "$API_URL/events/$EVENT_ID/waiting-room/$SESSION_ID/heartbeat" \
   -H "x-user-id: $USER_ID"
+```
 
-curl -X POST "http://localhost:3000/events/$EVENT_ID/holds" \
-  -H "content-type: application/json" \
+Copy the token into `ADMISSION_TOKEN`.
+
+3. Create the hold:
+
+```bash
+curl -i -X POST "$API_URL/events/$EVENT_ID/holds" \
+  -H 'content-type: application/json' \
   -H "x-user-id: $USER_ID" \
   -H "x-admission-token: $ADMISSION_TOKEN" \
-  -H "idempotency-key: create-1" \
+  -H 'idempotency-key: portfolio-hold-1' \
   -d "{\"seatId\":\"$SEAT_ID\"}"
-
-curl "http://localhost:3000/holds/$HOLD_ID" -H "x-user-id: $USER_ID"
-
-curl -X POST "http://localhost:3000/holds/$HOLD_ID/confirm" \
-  -H "x-user-id: $USER_ID" \
-  -H "idempotency-key: confirm-1"
-
-curl -X POST "http://localhost:3000/holds/$HOLD_ID/cancel" \
-  -H "x-user-id: $USER_ID" \
-  -H "idempotency-key: cancel-1"
 ```
 
-Repetir um comando com a mesma chave e payload devolve a resposta persistida e inclui
-`idempotency-replayed: true`. Reutilizar a chave com outro payload retorna
-`IDEMPOTENCY_KEY_REUSED`.
+Copy `id` into `HOLD_ID`. Repeating the exact request returns the persisted response with the `idempotency-replayed: true` header. Reusing the key with another seat returns `IDEMPOTENCY_KEY_REUSED`.
 
-## Checkout e pagamento simulado
-
-Um checkout só começa para um hold ativo e pertence ao mesmo usuário. A mesma chave de
-idempotência devolve o pagamento original:
+4. Start checkout:
 
 ```bash
-curl -X POST "http://localhost:3000/holds/$HOLD_ID/checkout" \
-  -H "x-user-id: $USER_ID" -H "idempotency-key: checkout-1"
+curl -X POST "$API_URL/holds/$HOLD_ID/checkout" \
+  -H "x-user-id: $USER_ID" \
+  -H 'idempotency-key: portfolio-checkout-1'
 ```
 
-O fake provider devolve um `providerPaymentId`. Para simular seu callback, envie um evento
-para `POST /webhooks/fake-payment` com `x-payment-signature`, calculado como HMAC-SHA256 de
-`eventId.providerPaymentId.type.occurredAt` usando `PAYMENT_WEBHOOK_SECRET`. Eventos são
-deduplicados por `eventId` e os mais antigos que o último callback aplicado são ignorados.
-
-O sucesso confirma hold, assento e pedido na mesma transação. Falha, cancelamento e timeout
-liberam o assento sem criar pedido. A política para sucesso após expiração ou outro estado
-terminal é marcar o pagamento como `LATE_SUCCEEDED`: o assento não é vendido e o registro
-fica explicitamente sinalizado para estorno. Toda mudança fica em `payment_transitions`.
-
-## Sala de espera
-
-A fila de cada evento é um Redis ZSET ordenado pelo instante de entrada e, em empates, pelo
-UUID da sessão. Sessões sem heartbeat expiram e são removidas. Um ou mais processos
-`admission-controller` executam um script Lua atômico que limpa admissões vencidas, respeita
-o teto global de admissões ativas e libera o próximo lote.
-
-O lote diminui automaticamente quando há espera no pool PostgreSQL ou quando a sonda do
-banco ultrapassa o limite de latência. O token HMAC dura 60 segundos, pertence a um único
-usuário, evento e sessão e só pode autorizar uma chave de idempotência. Limites adicionais
-são aplicados por usuário, sessão e IP; o PostgreSQL limita atomicamente os holds ativos de
-um usuário.
-
-Para receber posições aproximadas pelo gateway, envie:
-
-```json
-{
-  "type": "waiting-room.subscribe",
-  "eventId": "10000000-0000-4000-8000-000000000001",
-  "sessionId": "UUID_DA_SESSAO"
-}
-```
-
-O gateway responde com `waiting-room.position` e, após a admissão,
-`waiting-room.admitted`, incluindo o token.
-
-Os testes reais de concorrência precisam de um banco já migrado:
+Copy `id` into `PAYMENT_ID` and `providerPaymentId` into `PROVIDER_PAYMENT_ID`. Query the payment with:
 
 ```bash
+curl "$API_URL/payments/$PAYMENT_ID" -H "x-user-id: $USER_ID"
+```
+
+5. Simulate a successful webhook. Generate the values and signature with the local Compose secret:
+
+```bash
+WEBHOOK_EVENT_ID=$(node -e "console.log(crypto.randomUUID())")
+OCCURRED_AT=$(node -e "console.log(new Date().toISOString())")
+SIGNATURE=$(node -e "const c=require('crypto'); const [,e,p,t,o]=process.argv; console.log(c.createHmac('sha256','local-development-payment-webhook-secret').update([e,p,t,o].join('.')).digest('hex'))" "$WEBHOOK_EVENT_ID" "$PROVIDER_PAYMENT_ID" payment.succeeded "$OCCURRED_AT")
+
+curl -X POST "$API_URL/webhooks/fake-payment" \
+  -H 'content-type: application/json' \
+  -H "x-payment-signature: $SIGNATURE" \
+  -d "{\"eventId\":\"$WEBHOOK_EVENT_ID\",\"providerPaymentId\":\"$PROVIDER_PAYMENT_ID\",\"type\":\"payment.succeeded\",\"occurredAt\":\"$OCCURRED_AT\"}"
+```
+
+6. Verify the outcome:
+
+```bash
+curl "$API_URL/holds/$HOLD_ID" -H "x-user-id: $USER_ID"
+curl "$API_URL/payments/$PAYMENT_ID" -H "x-user-id: $USER_ID"
+curl "$API_URL/events/$EVENT_ID/seats?sectionId=$SECTION_ID&limit=500"
+```
+
+The expected state is a `CONFIRMED` hold, a `SUCCEEDED` payment, an `orderId`, and a `SOLD` seat.
+
+To test the alternative path before sending the webhook:
+
+```bash
+curl -X POST "$API_URL/payments/$PAYMENT_ID/cancel" \
+  -H "x-user-id: $USER_ID" \
+  -H 'idempotency-key: portfolio-payment-cancel-1'
+```
+
+### Option C — automated tests
+
+Run the fast checks without external dependencies:
+
+```bash
+npm ci
+npm run check
+```
+
+This runs linting, formatting checks, type checking, tests, and the production build. Without test URLs, Vitest marks suites that require PostgreSQL or Redis as `skipped`.
+
+To run the complete integration suite, start and migrate the infrastructure first:
+
+```bash
+docker compose up -d postgres redis
+cp .env.example .env
+npm run migrate
+
 TEST_DATABASE_URL=postgresql://reservation:reservation@localhost:5432/reservation \
-  npm run test:integration
+TEST_REDIS_URL=redis://localhost:6379 \
+npm run test:integration
 ```
 
-## Transactional Outbox
+The tests create isolated UUID-based fixtures and remove them afterward. For maximum CI isolation, use dedicated PostgreSQL and Redis instances.
 
-Criação, confirmação, cancelamento e expiração de holds gravam um evento em
-`outbox_events` dentro da mesma transação PostgreSQL da mudança. O processo
-`outbox-relay` busca lotes concorrentes com `FOR UPDATE SKIP LOCKED` e publica
-envelopes JSON no canal Redis `reservation.domain-events`.
+### Option D — load, resilience, and invariant tests
 
-O envelope contém um `eventId` UUID estável. Como uma queda após a publicação e
-antes da confirmação no banco pode gerar uma republicação, consumidores podem
-usar `IdempotentEventConsumer`, que registra o evento em `consumed_events` na
-mesma transação do efeito. Tentativas falhas recebem backoff e eventos publicados
-são arquivados após o período configurado.
-
-Métricas Prometheus do relay:
+With the complete stack running:
 
 ```bash
-curl http://localhost:9464/metrics
+npm run load:test -- same-seat
+npm run load:test -- distinct-seats
+npm run load:test -- waiting-room-spike
+npm run load:test -- websocket-storm
+npm run load:test -- duplicate-delivery
+npm run load:test -- resilience
+npm run load:audit
 ```
 
-As gauges `outbox_pending_events` e `outbox_oldest_event_age_seconds` mostram
-o backlog e a idade do evento pendente mais antigo.
+Run every standard scenario with `npm run load:test -- all`. Thresholds and result interpretation are documented in [docs/load-testing.md](docs/load-testing.md).
 
-## Observabilidade
+## API overview
 
-O Docker Compose também sobe Prometheus, Grafana, OpenTelemetry Collector e Tempo.
-Abra o Grafana em `http://localhost:3002` (`admin` / `admin` no ambiente local) para usar
-o dashboard provisionado **Live Seat Reservation — Overview** e pesquisar traces. O
-Prometheus fica em `http://localhost:9090`; API e gateway expõem `/metrics` em suas portas.
+| Method | Route                                                | Purpose                                   |
+| ------ | ---------------------------------------------------- | ----------------------------------------- |
+| `GET`  | `/health/live`                                       | process liveness                          |
+| `GET`  | `/health/ready`                                      | PostgreSQL and Redis readiness            |
+| `GET`  | `/metrics`                                           | API Prometheus metrics                    |
+| `GET`  | `/events/:eventId`                                   | event details                             |
+| `GET`  | `/events/:eventId/seats`                             | section-based paginated snapshot          |
+| `POST` | `/events/:eventId/waiting-room`                      | join the queue                            |
+| `GET`  | `/events/:eventId/waiting-room/:sessionId`           | query position or admission               |
+| `POST` | `/events/:eventId/waiting-room/:sessionId/heartbeat` | keep the session alive and obtain a token |
+| `POST` | `/events/:eventId/holds`                             | create a hold                             |
+| `GET`  | `/holds/:holdId`                                     | query an owned hold                       |
+| `POST` | `/holds/:holdId/confirm`                             | confirm a hold directly                   |
+| `POST` | `/holds/:holdId/cancel`                              | cancel a hold                             |
+| `POST` | `/holds/:holdId/checkout`                            | start payment                             |
+| `GET`  | `/payments/:id`                                      | query an owned payment                    |
+| `POST` | `/payments/:id/cancel`                               | cancel a payment                          |
+| `POST` | `/webhooks/fake-payment`                             | signed provider callback                  |
 
-Métricas cobrem HTTP, tentativas/conflitos de hold, holds ativos, expiração, sala de espera,
-admissão, conexões e backpressure WebSocket, outbox, pool PostgreSQL, BullMQ e event-loop
-lag. Alertas e instruções operacionais estão versionados em `observability/alerts.yml` e
-`docs/runbooks/observability.md`. A estratégia de correlação e redaction está em
-`docs/observability.md`.
+User commands require `x-user-id`. Mutating commands require `idempotency-key`; creating a hold also requires `x-admission-token`. Every API response includes `x-correlation-id`.
 
-## Atualizações em tempo real
+## WebSocket
 
-O gateway WebSocket escuta em `ws://localhost:3001/ws`. A conexão exige um UUID em
-`x-user-id`; depois de conectar, o cliente informa a versão do snapshot HTTP que já
-possui:
+Connect to `ws://localhost:3001/ws` with a UUID in the `x-user-id` header. Subscribe to seat updates with:
 
 ```json
 { "type": "subscribe", "eventId": "10000000-0000-4000-8000-000000000001", "lastVersion": 1 }
 ```
 
-Cada alteração chega como `seat.updated`, com `messageId`, `eventId`, `seatId`,
-`version`, `occurredAt` e o novo `status`. Mensagens repetidas ou antigas são
-ignoradas. Se a próxima versão não for contígua, o gateway envia
-`resync.required` com a URL do snapshot; o cliente deve buscar novamente
-`GET /events/:eventId/seats`, considerando todas as páginas/seções necessárias, e
-refazer a inscrição com a nova versão.
+Subscribe to waiting-room position updates with:
 
-Cada instância assina o canal Redis da outbox, portanto clientes conectados em
-gateways diferentes recebem o mesmo broadcast. Ping/pong remove conexões mortas;
-limites de payload, frequência e buffer protegem o processo de clientes abusivos
-ou lentos. Durante shutdown o gateway para upgrades, envia `server.draining` e
-fecha as conexões com código `1012`.
+```json
+{
+  "type": "waiting-room.subscribe",
+  "eventId": "10000000-0000-4000-8000-000000000001",
+  "sessionId": "SESSION_UUID"
+}
+```
 
-## Comandos
+The gateway enforces payload and frequency limits, ping/pong heartbeats, buffered-data protection, and graceful shutdown through `server.draining`.
 
-| Comando                              | Finalidade                                          |
-| ------------------------------------ | --------------------------------------------------- |
-| `npm run dev`                        | API com reload automático                           |
-| `npm run dev:worker`                 | Worker de expiração com reload automático           |
-| `npm run dev:outbox-relay`           | Relay da outbox com reload automático               |
-| `npm run migrate`                    | Aplica migrations pendentes com lock no PostgreSQL  |
-| `npm run seed`                       | Cria o evento de demonstração e 3.000 assentos      |
-| `npm run test:integration`           | Testa invariantes contra PostgreSQL real            |
-| `npm run load:test -- <cenário>`     | Executa cenário k6 e auditoria de overselling       |
-| `npm run load:chaos -- <falha>`      | Injeta falha durante carga e audita a recuperação   |
-| `npm run load:audit`                 | Audita invariantes persistidos no PostgreSQL        |
-| `npm run check`                      | Lint, formatação, tipos, testes e build             |
-| `npm start`                          | Executa o build de produção                         |
-| `npm run start:worker`               | Executa o worker compilado                          |
-| `npm run start:outbox-relay`         | Executa o relay compilado                           |
-| `npm run dev:websocket-gateway`      | Gateway WebSocket com reload automático             |
-| `npm run dev:admission-controller`   | Controlador da sala de espera com reload automático |
-| `npm run start:websocket-gateway`    | Executa o gateway WebSocket compilado               |
-| `npm run start:admission-controller` | Executa o controlador de admissão compilado         |
+## Observability
 
-O processo trata `SIGINT` e `SIGTERM`, para de aceitar requisições e encerra as conexões com PostgreSQL e Redis antes de sair.
+The provisioned **Live Seat Reservation — Overview** dashboard covers HTTP traffic and latency, hold conflicts and active holds, expiration and outbox backlogs, waiting-room admission, WebSocket connections, PostgreSQL pool pressure, and event-loop lag. Logs preserve `x-correlation-id`, while traces are exported through OTLP to Tempo. Alerts and runbooks are versioned with the codebase.
 
-Consulte o [ROADMAP.md](./ROADMAP.md) para as próximas fases.
+See [docs/observability.md](docs/observability.md), [docs/runbooks/observability.md](docs/runbooks/observability.md), and [docs/runbooks/incidents.md](docs/runbooks/incidents.md).
 
-O guia reproduzível da Fase 10, matriz de falhas, consultas e modelo de relatório estão em
-[`docs/load-testing.md`](./docs/load-testing.md).
+## Useful commands
 
-## Deploy e material de apresentação
+| Command                            | Purpose                                  |
+| ---------------------------------- | ---------------------------------------- |
+| `npm run dev`                      | API with hot reload                      |
+| `npm run dev:worker`               | expiration worker with hot reload        |
+| `npm run dev:outbox-relay`         | outbox relay with hot reload             |
+| `npm run dev:websocket-gateway`    | WebSocket gateway with hot reload        |
+| `npm run dev:admission-controller` | admission controller with hot reload     |
+| `npm run migrate`                  | migrations protected by an advisory lock |
+| `npm run seed`                     | demo event and 3,000 seats               |
+| `npm run check`                    | quality checks, local tests, and build   |
+| `npm run test:integration`         | PostgreSQL and Redis integration suites  |
+| `npm run load:test -- <scenario>`  | k6 scenario and invariant audit          |
+| `npm run load:chaos -- <failure>`  | controlled failure during load           |
+| `npm run load:audit`               | audit persisted PostgreSQL invariants    |
 
-O Dockerfile possui alvos independentes para `api`, `worker`, `outbox-relay`,
-`websocket-gateway`, `admission-controller`, `migrate` e `seed`. Todos os processos longos
-expõem liveness/readiness e fazem draining ao receber SIGTERM; migrations usam advisory lock
-e bloqueiam o restante do deploy quando falham.
+## Technical documentation
 
-- [Arquitetura e sequências](./docs/architecture.md)
-- [Threat model](./docs/threat-model.md)
-- [Capacity planning](./docs/capacity-planning.md)
-- [Modos de falha](./docs/failure-modes.md)
-- [Runbook de incidentes](./docs/runbooks/incidents.md)
-- [ADRs](./docs/adrs/001-postgresql-source-of-truth.md)
-- [Resultados e protocolo de carga](./docs/load-test-results.md)
-- [Demonstração de disputa concorrente](./docs/demo.md)
+- [Architecture](docs/architecture.md)
+- [Architecture Decision Records](docs/adrs)
+- [Capacity planning and SLOs](docs/capacity-planning.md)
+- [Failure modes](docs/failure-modes.md)
+- [Load testing](docs/load-testing.md)
+- [Load-test results](docs/load-test-results.md)
+- [Short demo](docs/demo.md)
+- [Roadmap](ROADMAP.md)
+
+## Current limitations
+
+This is a backend portfolio project. It uses simplified `x-user-id` authentication, a fake payment provider, one event configured per admission-controller process, and local infrastructure through Docker Compose. A production deployment would additionally require real authentication and authorization, secret management, TLS, edge rate limiting, orchestration, backups, continuous restore tests, and integration with a real payment service provider.
+
+## License
+
+There is currently no license file in this repository. Until one is added, the source code should be treated as all rights reserved.

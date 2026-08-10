@@ -1,8 +1,5 @@
-# ADR 003 — Monólito modular em processos especializados
+# ADR 003 — Modular monolith with specialized processes
 
-**Status:** aceito.
+**Status:** accepted.
 
-Um código-base e um schema reduzem custo transacional e operacional. API, gateway, worker,
-relay e controlador têm imagens/alvos e escalas independentes. A troca é acoplamento de
-deploy; contratos de módulo e migrations controladas preparam uma extração futura sem
-introduzir microsserviços prematuramente.
+One codebase and one schema reduce transactional and operational cost. The API, gateway, worker, relay, and controller have independent image targets and scaling units. The trade-off is deployment coupling; module contracts and controlled migrations prepare for future extraction without introducing microservices prematurely.

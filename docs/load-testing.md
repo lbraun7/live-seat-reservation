@@ -1,13 +1,10 @@
-# Testes de carga e resiliência
+# Load and resilience testing
 
-Esta suíte implementa a Fase 10 com cenários k6 reproduzíveis, falhas controladas pelo
-Docker Compose, resultados brutos em JSON e uma auditoria independente dos invariantes no
-PostgreSQL. O banco continua sendo a fonte da verdade: Redis participa da admissão, filas e
-broadcast, mas não decide se um assento pode ser vendido.
+This suite implements Phase 10 with reproducible k6 scenarios, Docker Compose-controlled failures, raw JSON results, and an independent PostgreSQL invariant audit. The database remains the source of truth: Redis supports admission, queues, and broadcasts, but does not decide whether a seat may be sold.
 
-## Preparação
+## Preparation
 
-Suba a stack limpa e aguarde os health checks:
+Start from a clean stack and wait for health checks:
 
 ```bash
 docker compose down -v
@@ -15,12 +12,9 @@ docker compose up -d --build
 docker compose ps
 ```
 
-O `down -v` apaga dados locais e deve ser usado somente no ambiente descartável de carga.
-Cada execução grava o resumo completo do k6 em `load-tests/results/` e termina executando
-`load-tests/audit.sql`. A auditoria retorna código diferente de zero se houver mais de um
-pedido ou mais de um hold ativo para o mesmo assento.
+`down -v` deletes local data and must only be used in a disposable load-test environment. Every run writes its complete k6 summary to `load-tests/results/` and finishes by executing `load-tests/audit.sql`. The audit exits with a non-zero status if more than one order or more than one active hold exists for the same seat.
 
-## Cenários
+## Scenarios
 
 ```bash
 npm run load:test -- distinct-seats
@@ -31,31 +25,28 @@ npm run load:test -- websocket-slow-clients
 npm run load:test -- duplicate-delivery
 ```
 
-| Cenário                  | Evidência produzida                                           |
-| ------------------------ | ------------------------------------------------------------- |
-| `distinct-seats`         | throughput e latência com usuários em assentos diferentes     |
-| `same-seat`              | uma vitória e conflitos `409` esperados sob contenção         |
-| `waiting-room-spike`     | comportamento da fila em uma subida abrupta de chegadas       |
-| `websocket-storm`        | latência e sucesso de milhares de reconnects                  |
-| `websocket-slow-clients` | limites de conexão e descarte/backpressure                    |
-| `duplicate-delivery`     | replay idempotente com mesmo status, corpo e hold             |
-| `resilience`             | sonda contínua usada durante falhas de dependências/processos |
+| Scenario                 | Evidence produced                                           |
+| ------------------------ | ----------------------------------------------------------- |
+| `distinct-seats`         | throughput and latency with users selecting different seats |
+| `same-seat`              | one winner and expected `409` conflicts under contention    |
+| `waiting-room-spike`     | queue behavior during a sudden arrival spike                |
+| `websocket-storm`        | latency and success rate across thousands of reconnects     |
+| `websocket-slow-clients` | connection limits, dropping, and backpressure               |
+| `duplicate-delivery`     | idempotent replay with the same status, body, and hold      |
+| `resilience`             | continuous probe used during process/dependency failures    |
 
-Os valores são deliberadamente configuráveis. Por exemplo, uma execução de 3.000 usuários
-em assentos distintos usa os três setores do seed:
+Values are deliberately configurable. For example, a 3,000-user run across the three seeded sections is:
 
 ```bash
 RATE=50 DURATION=1m PRE_ALLOCATED_VUS=200 MAX_VUS=3000 \
   npm run load:test -- distinct-seats
 ```
 
-Para preservar a independência entre experimentos, recrie os volumes antes de uma nova
-baseline. Holds anteriores alteram legitimamente o número de conflitos.
+Recreate volumes before establishing a new baseline so experiments remain independent. Existing holds legitimately change the number of conflicts.
 
-## Experimentos de falha
+## Failure experiments
 
-O orquestrador aquece a carga por 15 segundos, injeta a falha, restaura o processo e audita
-o banco. O trap de saída também restaura serviços após interrupção do terminal.
+The orchestrator warms traffic for 15 seconds, injects a failure, restores the process, and audits the database. Its exit trap also restores services after terminal interruption.
 
 ```bash
 npm run load:chaos -- redis-unavailable
@@ -65,26 +56,17 @@ npm run load:chaos -- outbox-interrupted
 RATE=500 MAX_VUS=2000 npm run load:chaos -- postgres-pool-saturation
 ```
 
-- Redis pausado testa respostas durante reservas/admissões sem transferir a correção para
-  Redis.
-- Worker parado acumula expirações; após voltar, meça a recuperação por
-  `expiration_lag_seconds` e pela fila BullMQ.
-- API reiniciada testa requisições interrompidas e retries idempotentes.
-- Relay parado acumula commits na outbox; depois da retomada, a idade e o tamanho devem
-  convergir a zero, mesmo que uma publicação seja repetida.
-- Saturação usa uma taxa maior que a capacidade da pool. Ajuste `RATE`, `MAX_VUS` e a
-  duração conforme a máquina; observe `database_pool_waiting` e latências.
+- Pausing Redis tests reservation/admission responses without transferring correctness to Redis.
+- Stopping the worker accumulates expirations; after recovery, measure convergence with `expiration_lag_seconds` and the BullMQ queue.
+- Restarting the API tests interrupted requests and idempotent retries.
+- Stopping the relay accumulates committed outbox events; after recovery, age and size must converge to zero even if one publication is repeated.
+- Pool saturation uses traffic above connection-pool capacity. Tune `RATE`, `MAX_VUS`, and duration for the machine; inspect `database_pool_waiting` and latency.
 
-O cenário de duplicação cobre comandos HTTP. A garantia para eventos está na chave primária
-`consumed_events(consumer_name, event_id)` e a garantia para jobs na transição condicional de
-estado do reconciliador/worker; os testes de integração exercitam essas transições. A
-Transactional Outbox aceita publicação pelo menos uma vez e consumidores deduplicam pelo
-`eventId` estável.
+The duplicate-delivery scenario covers HTTP commands. Event deduplication is guaranteed by the `consumed_events(consumer_name, event_id)` primary key, while job deduplication relies on conditional state transitions in the worker/reconciler. Integration tests exercise both transitions. Transactional Outbox uses at-least-once publication, and consumers deduplicate by stable `eventId`.
 
-## Coleta e relatório
+## Data collection and reporting
 
-Durante cada janela, exporte ou fotografe o dashboard Grafana e consulte o Prometheus. As
-consultas abaixo cobrem os resultados obrigatórios (use a mesma janela do teste):
+During every test window, export or capture the Grafana dashboard and query Prometheus. The following queries cover the required signals; use the same time window as the test:
 
 ```promql
 histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[1m])))
@@ -100,22 +82,14 @@ outbox_oldest_event_age_seconds
 database_pool_waiting
 ```
 
-CPU e memória por processo são obtidas com `docker stats --no-stream`; conexões, backlog e
-event-loop lag vêm do Prometheus. Copie os números e o commit testado para
-`docs/load-test-report-template.md`. Os JSONs do k6 incluem p50, p95, p99, taxa de erro,
-checks, iterações e throughput.
+Obtain per-process CPU and memory with `docker stats --no-stream`; connection counts, backlogs, and event-loop lag come from Prometheus. Copy the values and tested commit to `docs/load-test-report-template.md`. k6 JSON files include p50, p95, p99, error rate, checks, iterations, and throughput.
 
-## Critérios de aprovação
+## Acceptance criteria
 
-- `audit.sql` termina com `oversold_seats=0` e `active_hold_collisions=0`.
-- O cenário de contenção só produz `201` ou conflito esperado `409`.
-- O replay duplicado devolve o mesmo hold com `idempotency-replayed: true`.
-- Depois da recuperação, readiness volta a `200`, a outbox converge e o atraso de expiração
-  retorna ao baseline.
-- Os thresholds de latência/erro acordados para o hardware testado passam e ficam registrados
-  no relatório.
+- `audit.sql` finishes with `oversold_seats=0` and `active_hold_collisions=0`.
+- The contention scenario produces only `201` or expected `409` conflicts.
+- Duplicate replay returns the same hold with `idempotency-replayed: true`.
+- After recovery, readiness returns to `200`, the outbox converges, and expiration delay returns to baseline.
+- Agreed latency/error thresholds pass for the tested hardware and are recorded in the report.
 
-O experimento Redis fast-rejection permanece opcional e não foi adicionado ao caminho de
-correção. Se for avaliado, rode primeiro esta baseline PostgreSQL, adicione apenas um lock
-curto como rejeição antecipada e repita exatamente a mesma matriz. Uma indisponibilidade do
-Redis nunca pode permitir uma venda que as constraints/transações PostgreSQL rejeitariam.
+The Redis fast-rejection experiment remains optional and is not part of the correctness path. If evaluated, first run this PostgreSQL baseline, add only a short-lived Redis lock as early rejection, and repeat the exact matrix. Redis unavailability must never allow a sale that PostgreSQL constraints or transactions would reject.

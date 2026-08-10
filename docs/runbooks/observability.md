@@ -1,35 +1,25 @@
-# Runbook de observabilidade
+# Observability runbook
 
-## API high error rate
+## High API error rate
 
-Confira rotas/status no dashboard, abra traces representativos no Tempo e verifique saúde
-de PostgreSQL e Redis. Se o banco estiver saudável, procure o código de erro e correlation
-ID nos logs. Erros de conflito esperados (409) não entram neste alerta.
+Check routes and status codes in the dashboard, open representative traces in Tempo, and verify PostgreSQL and Redis health. If the database is healthy, locate the error code and correlation ID in logs. Expected `409` conflicts are excluded from this alert.
 
-## Postgres pool saturated
+## PostgreSQL pool saturated
 
-Compare conexões `busy`, fila do pool e p95 HTTP. Localize queries lentas nos traces e
-locks no PostgreSQL. Reduza a admissão temporariamente antes de aumentar o pool; aumentar
-conexões sem conferir o limite do banco pode ampliar a saturação.
+Compare busy connections, pool waiters, and HTTP p95. Locate slow queries in traces and locks in PostgreSQL. Reduce admission temporarily before increasing the pool; adding connections without checking the database limit can worsen saturation.
 
-## Expiration lag high
+## High expiration lag
 
-Confira `bullmq_jobs`, `bullmq_job_lag_seconds` e o estado do worker/Redis. Reinicie ou
-escale workers quando seguro. O reconciliador PostgreSQL recupera holds vencidos, portanto
-confirme a queda do lag e que `expired_holds_total{source="reconciler"}` avançou.
+Check `bullmq_jobs`, `bullmq_job_lag_seconds`, and worker/Redis state. Restart or scale workers when safe. The PostgreSQL reconciler recovers expired holds, so confirm that lag falls and `expired_holds_total{source="reconciler"}` increases.
 
 ## Outbox publication gap
 
-Confira conectividade do relay com Redis, erros e tentativas no relay. Reinicie-o após
-corrigir a dependência. Não altere `published_at` manualmente: o relay pode republicar e os
-consumidores são idempotentes.
+Check relay connectivity to Redis, errors, and relay attempts. Restart it after fixing the dependency. Do not edit `published_at` manually: the relay may republish, and consumers are idempotent.
 
 ## Slow WebSocket clients
 
-Compare conexões, duração de broadcast, drops e event-loop lag. Os clientes lentos são
-fechados com código 1013 e devem buscar novo snapshot por HTTP antes de reconectar.
+Compare connections, broadcast duration, drops, and event-loop lag. Slow clients are closed with code 1013 and must fetch a fresh HTTP snapshot before reconnecting.
 
-## Event loop lag high
+## High event-loop lag
 
-Correlacione com CPU, heap, tráfego e broadcast. Procure trabalho síncrono em traces/logs;
-se ocorrer em um único processo, retire a instância de rotação e capture um profile.
+Correlate the signal with CPU, heap, traffic, and broadcasts. Look for synchronous work in traces and logs; if isolated to one process, remove that instance from rotation and capture a profile.

@@ -1,39 +1,29 @@
-# Runbook de incidentes
+# Incident runbook
 
-## Triagem comum
+## Common triage
 
-1. Declare horário, impacto, evento e responsável; preserve correlation IDs.
-2. Confira `docker compose ps`, dashboard Overview, traces e alertas.
-3. Proteja a correção: não remova constraints nem edite estados de hold manualmente.
-4. Reduza admissão ou tráfego antes de reiniciar componentes em massa.
-5. Após recuperar, execute `npm run load:audit` e registre timeline e causa.
+1. Declare the start time, impact, event, and owner; preserve correlation IDs.
+2. Check `docker compose ps`, the Overview dashboard, traces, and alerts.
+3. Protect correctness: do not remove constraints or manually edit hold states.
+4. Reduce admission or traffic before restarting components in bulk.
+5. After recovery, run `npm run load:audit` and record the timeline and root cause.
 
-## Readiness falhando
+## Readiness failure
 
-Consulte `/health/ready`; o corpo separa PostgreSQL e Redis. Confira logs do processo e a
-latência/pool. Não rote tráfego enquanto retornar 503. Se uma migration falhou, o job
-`migrate` bloqueia API e workers; corrija-a e execute novamente, nunca marque manualmente
-`schema_migrations`.
+Query `/health/ready`; its body distinguishes PostgreSQL from Redis. Check process logs, latency, and pool state. Do not route traffic while it returns 503. If a migration failed, the `migrate` job blocks the API and workers; fix and rerun it, and never manually edit `schema_migrations`.
 
-## Outbox atrasada
+## Outbox delay
 
-Observe `outbox_pending_events` e `outbox_oldest_event_age_seconds`, confira Redis e logs do
-relay. Restaure a dependência e escale o relay temporariamente. Duplicatas são esperadas;
-não apague eventos pendentes. Confirme convergência a zero.
+Inspect `outbox_pending_events` and `outbox_oldest_event_age_seconds`, Redis, and relay logs. Restore the dependency and temporarily scale the relay. Duplicates are expected; do not delete pending events. Confirm convergence to zero.
 
-## Expirações atrasadas
+## Delayed expirations
 
-Observe BullMQ, `expiration_lag_seconds`, Redis e worker. Ao restaurar o worker, o
-reconciliador PostgreSQL cobre jobs perdidos. Espere o backlog convergir e audite colisões.
+Inspect BullMQ, `expiration_lag_seconds`, Redis, and the worker. After restoring the worker, the PostgreSQL reconciler covers lost jobs. Wait for backlog convergence and audit collisions.
 
-## Overselling suspeito
+## Suspected overselling
 
-Congele novas admissões e preserve banco/logs. Rode `npm run load:audit`. Qualquer resultado
-acima de zero é severidade máxima: não tente corrigir apagando linhas. Capture schema,
-constraints, transações e versão implantada para análise e reconciliação de compradores.
+Freeze new admissions and preserve the database and logs. Run `npm run load:audit`. Any result above zero is the highest severity: do not attempt to fix it by deleting rows. Capture the schema, constraints, transactions, and deployed version for analysis and buyer reconciliation.
 
-## Encerramento/deploy
+## Shutdown/deployment
 
-Envie SIGTERM e respeite `stop_grace_period`. API para novas conexões; gateway rejeita novos
-upgrades, envia `server.draining` e fecha com 1012; loops param e operações correntes
-terminam. Só use SIGKILL depois do timeout, aceitando replay idempotente na retomada.
+Send SIGTERM and respect `stop_grace_period`. The API stops accepting connections; the gateway rejects upgrades, sends `server.draining`, and closes with 1012; loops stop and current operations finish. Use SIGKILL only after the timeout, accepting idempotent replay during recovery.

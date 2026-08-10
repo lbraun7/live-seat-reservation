@@ -1,32 +1,25 @@
 # Capacity planning
 
-Capacidade deve ser derivada de teste no hardware de destino, não de números universais.
-Use `docs/load-testing.md` e aumente a taxa até o primeiro SLO romper.
+Capacity must be derived from tests on the target hardware, not from universal numbers. Follow `docs/load-testing.md` and increase traffic until the first SLO is breached.
 
-## Modelo inicial
+## Initial model
 
-- API: `réplicas = ceil(pico de RPS / RPS sustentável por réplica × 1,5)`.
-- Gateway: `réplicas = ceil(conexões simultâneas / conexões sustentáveis por réplica × 1,3)`;
-  valide também file descriptors, memória por socket e tráfego de broadcast.
-- PostgreSQL: limite a soma dos pools a no máximo 70–80% de `max_connections`, reservando
-  conexões operacionais. Escale leitura de catálogo separadamente apenas quando necessário.
-- Worker: capacidade de consumo precisa superar a criação de holds; o backlog deve voltar a
-  zero após um pico antes do próximo pico esperado.
-- Relay: `batch_size / interval` deve exceder a taxa máxima de commits com margem de 2×.
-- Redis: dimensione memória para sessões, admissões, filas e AOF, com folga de 50%; meça CPU
-  em scripts Lua e fan-out Pub/Sub.
+- API: `replicas = ceil(peak RPS / sustainable RPS per replica × 1.5)`.
+- Gateway: `replicas = ceil(concurrent connections / sustainable connections per replica × 1.3)`; also validate file descriptors, memory per socket, and broadcast traffic.
+- PostgreSQL: keep the sum of all pools below 70–80% of `max_connections`, reserving operational connections. Scale catalog reads separately only when necessary.
+- Worker: consumption capacity must exceed hold creation; backlog must return to zero after one peak before the next expected peak.
+- Relay: `batch_size / interval` must exceed the maximum commit rate with a 2× margin.
+- Redis: size memory for sessions, admissions, queues, and AOF with 50% headroom; measure CPU usage in Lua scripts and Pub/Sub fan-out.
 
-## SLOs de referência para a demonstração
+## Reference SLOs for the demo
 
-| Sinal                   | Objetivo inicial           | Gatilho de escala/investigação |
-| ----------------------- | -------------------------- | ------------------------------ |
-| API p95                 | < 250 ms fora de contenção | > 250 ms por 5 min             |
-| erro inesperado         | < 1%                       | ≥ 1% por 5 min                 |
-| pool esperando          | 0 em regime                | > 0 por 2 min                  |
-| outbox mais antiga      | < 5 s                      | ≥ 30 s                         |
-| atraso de expiração p95 | < 5 s                      | ≥ 30 s                         |
-| event-loop p99          | < 100 ms                   | ≥ 250 ms                       |
+| Signal               | Initial objective           | Scale/investigation trigger |
+| -------------------- | --------------------------- | --------------------------- |
+| API p95              | < 250 ms outside contention | > 250 ms for 5 min          |
+| unexpected errors    | < 1%                        | ≥ 1% for 5 min              |
+| pool waiters         | 0 at steady state           | > 0 for 2 min               |
+| oldest outbox event  | < 5 s                       | ≥ 30 s                      |
+| expiration delay p95 | < 5 s                       | ≥ 30 s                      |
+| event-loop p99       | < 100 ms                    | ≥ 250 ms                    |
 
-Conflitos `409` na disputa são resultado de negócio, não indisponibilidade. Antes de cada
-evento, execute o cenário `same-seat`, registre o commit, hardware, taxa, p95/p99, CPU,
-memória e resultado de `load-tests/audit.sql`.
+Expected `409` contention conflicts are business outcomes, not unavailability. Before each event, run the `same-seat` scenario and record the commit, hardware, rate, p95/p99, CPU, memory, and `load-tests/audit.sql` result.

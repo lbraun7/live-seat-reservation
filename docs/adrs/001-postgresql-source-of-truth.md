@@ -1,7 +1,5 @@
-# ADR 001 — PostgreSQL como fonte da verdade
+# ADR 001 — PostgreSQL as the source of truth
 
-**Status:** aceito.
+**Status:** accepted.
 
-Reservas, confirmação e venda usam transações, locks e constraints PostgreSQL. Redis não
-participa da decisão final. Isso preserva correção durante falhas de cache ao custo de maior
-pressão no banco. Fast-rejection em Redis só pode ser uma otimização mensurada e removível.
+Reservations, confirmations, and sales use PostgreSQL transactions, locks, and constraints. Redis does not participate in the final decision. This preserves correctness during cache failures at the cost of additional database pressure. Fast rejection in Redis may only be introduced as a measurable and removable optimization.

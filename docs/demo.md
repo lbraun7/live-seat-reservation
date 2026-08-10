@@ -1,12 +1,9 @@
-# Demonstração curta: disputa concorrente
+# Short demo: concurrent contention
 
-Com a stack pronta, execute:
+With the stack ready, run:
 
 ```bash
 ./scripts/demo-concurrency.sh
 ```
 
-O roteiro roda uma disputa concentrada pela mesma cadeira, executa a auditoria independente
-e mostra o estado dos processos. O resultado esperado é concorrência com conflitos de
-negócio e `oversold_seats=0`. Para gravar um vídeo/terminal cast, inicie a captura da sua
-ferramenta, execute o script e encerre após a auditoria; não há credenciais na saída.
+The script runs concentrated contention for the same seat, performs the independent invariant audit, and displays process state. The expected outcome is business conflicts under contention with `oversold_seats=0`. To record a video or terminal cast, start your capture tool, run the script, and stop after the audit; the output contains no credentials.

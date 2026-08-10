@@ -1,42 +1,28 @@
-# Observabilidade
+# Observability
 
-Cada processo publica métricas Prometheus e inicia OpenTelemetry quando
-`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` está definido. A propagação W3C `traceparent` é
-aceita nas requisições HTTP; as instrumentações de Fastify/HTTP, PostgreSQL, Redis e
-BullMQ criam spans dos limites técnicos. O `x-correlation-id` continua sendo o identificador
-de suporte visível ao cliente e deve ser incluído nos logs da API.
+Each process publishes Prometheus metrics and starts OpenTelemetry when `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is configured. W3C `traceparent` propagation is accepted on HTTP requests; Fastify/HTTP, PostgreSQL, Redis, and BullMQ instrumentation creates spans across technical boundaries. `x-correlation-id` remains the client-visible support identifier and must be included in API logs.
 
-## Uso local
+## Local usage
 
 ```bash
 docker compose up --build
 ```
 
-- Grafana: http://localhost:3002 (`admin` / `admin`, somente desenvolvimento)
+- Grafana: http://localhost:3002 (`admin` / `admin`, development only)
 - Prometheus: http://localhost:9090
 - Tempo: http://localhost:3200
-- Métricas da API: http://localhost:3000/metrics
-- Métricas do gateway: http://localhost:3001/metrics
-- Métricas do relay: http://localhost:9464/metrics
+- API metrics: http://localhost:3000/metrics
+- gateway metrics: http://localhost:3001/metrics
+- relay metrics: http://localhost:9464/metrics
 
-O dashboard provisionado **Live Seat Reservation — Overview** mostra latência HTTP,
-conflitos, pool PostgreSQL, expiração/BullMQ, outbox, waiting room, WebSocket e event loop.
-Tempo aparece como datasource do Grafana para pesquisar traces por serviço e trace ID.
+The provisioned **Live Seat Reservation — Overview** dashboard shows HTTP latency, conflicts, PostgreSQL pool state, expiration/BullMQ, outbox, waiting room, WebSocket, and event-loop signals. Tempo is configured as a Grafana data source for trace searches by service and trace ID.
 
-## Correlação
+## Correlation
 
-1. Preserve `x-correlation-id` ao repetir uma chamada ou investigar um erro.
-2. Use o trace HTTP no Tempo para seguir queries PostgreSQL, operações Redis e jobs BullMQ.
-3. Use `eventId`, `aggregateId`, `holdId` e `jobId` dos logs estruturados para cruzar a
-   transação, outbox, expiração e broadcast. Esses IDs são estáveis mesmo quando uma
-   mensagem é entregue mais de uma vez.
+1. Preserve `x-correlation-id` when retrying a request or investigating an error.
+2. Use the HTTP trace in Tempo to follow PostgreSQL queries, Redis operations, and BullMQ jobs.
+3. Use `eventId`, `aggregateId`, `holdId`, and `jobId` from structured logs to correlate the transaction, outbox, expiration, and broadcast. These IDs remain stable when a message is delivered more than once.
 
-## Redaction de dados sensíveis
+## Sensitive-data redaction
 
-Nunca registrar headers `authorization`, `cookie`, `x-admission-token`,
-`x-payment-signature`, segredos, URLs com credenciais ou corpos completos de webhook.
-Identificadores de usuário e IP devem ser omitidos ou transformados em hash nos logs de
-produção. São permitidos IDs técnicos (`holdId`, `seatId`, `orderId`, `eventId`, `jobId`),
-códigos de erro, durações e contagens. Exceções devem ser serializadas sem parâmetros SQL
-nem payloads. A configuração do Fastify não registra headers/body; qualquer logger futuro
-deve aplicar essa lista explícita de redaction antes de ser habilitado.
+Never log `authorization`, `cookie`, `x-admission-token`, or `x-payment-signature` headers, secrets, credential-bearing URLs, or complete webhook bodies. User identifiers and IP addresses must be omitted or hashed in production logs. Technical IDs (`holdId`, `seatId`, `orderId`, `eventId`, `jobId`), error codes, durations, and counts are allowed. Exceptions must be serialized without SQL parameters or payloads. Fastify does not currently log headers or bodies; any future request logger must enforce this explicit redaction list before being enabled.

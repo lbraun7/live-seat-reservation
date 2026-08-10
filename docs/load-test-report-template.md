@@ -1,46 +1,45 @@
-# Relatório de carga — AAAA-MM-DD / commit SHA
+# Load-test report — YYYY-MM-DD / commit SHA
 
-## Ambiente
+## Environment
 
-- máquina/CPU/memória:
-- Docker e sistema operacional:
-- commit e configuração:
-- duração e janela UTC:
-- cenário, VUs/rate:
+- machine/CPU/memory:
+- Docker and operating system:
+- commit and configuration:
+- duration and UTC window:
+- scenario, VUs/rate:
 
-## Resultados
+## Results
 
-| Cenário            | req/s | p50 | p95 | p99 | erro | conflitos esperados |
-| ------------------ | ----: | --: | --: | --: | ---: | ------------------: |
-| Assentos distintos |       |     |     |     |      |                 n/a |
-| Mesmo assento      |       |     |     |     |      |                     |
-| Spike da sala      |       |     |     |     |      |                 n/a |
-| Reconnect storm    |       |     |     |     |      |                 n/a |
-| Clientes lentos    |       |     |     |     |      |                 n/a |
+| Scenario           | req/s | p50 | p95 | p99 | errors | expected conflicts |
+| ------------------ | ----: | --: | --: | --: | -----: | -----------------: |
+| Distinct seats     |       |     |     |     |        |                n/a |
+| Same seat          |       |     |     |     |        |                    |
+| Waiting-room spike |       |     |     |     |        |                n/a |
+| Reconnect storm    |       |     |     |     |        |                n/a |
+| Slow clients       |       |     |     |     |        |                n/a |
 
-| Sinal operacional           | baseline | pico | após recuperação |
-| --------------------------- | -------: | ---: | ---------------: |
-| event-loop lag              |          |      |                  |
-| CPU/memória por processo    |          |      |                  |
-| conexões WS por instância   |          |      |                  |
-| propagação p95 do broadcast |          |      |                  |
-| atraso de expiração         |          |      |                  |
-| outbox: tamanho/idade       |          |      |                  |
-| espera/saturação da pool    |          |      |                  |
+| Operational signal          | baseline | peak | after recovery |
+| --------------------------- | -------: | ---: | -------------: |
+| event-loop lag              |          |      |                |
+| CPU/memory per process      |          |      |                |
+| WS connections per instance |          |      |                |
+| broadcast propagation p95   |          |      |                |
+| expiration delay            |          |      |                |
+| outbox size/age             |          |      |                |
+| pool wait/saturation        |          |      |                |
 
-## Falhas e recuperação
+## Failures and recovery
 
-Registre para Redis, worker, API, relay e pool: instante de injeção, respostas observadas,
-backlog máximo, tempo até readiness e tempo até convergência.
+For Redis, worker, API, relay, and pool failures, record the injection time, observed responses, maximum backlog, time to readiness, and time to convergence.
 
-## Invariantes
+## Invariants
 
-Cole a saída de `load-tests/results/*-audit.txt`.
+Paste the output of `load-tests/results/*-audit.txt`.
 
-- assentos vendidos mais de uma vez: **0**
-- assentos com mais de um hold ativo: **0**
-- replay idempotente: aprovado/reprovado
+- seats sold more than once: **0**
+- seats with more than one active hold: **0**
+- idempotent replay: pass/fail
 
-## Conclusão
+## Conclusion
 
-Thresholds aprovados, gargalo dominante, capacidade segura estimada e ações propostas.
+Record passed thresholds, the dominant bottleneck, estimated safe capacity, and proposed actions.

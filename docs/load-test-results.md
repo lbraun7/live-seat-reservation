@@ -1,17 +1,12 @@
-# Resultados e evidências de carga
+# Load-test results and evidence
 
-A suíte e os critérios estão publicados em `docs/load-testing.md`. Resultados brutos são
-gerados em `load-tests/results/` para cada ambiente, porque latências sem identificação de
-hardware não são comparáveis. O repositório não inventa uma baseline numérica.
+The suite and its criteria are documented in `docs/load-testing.md`. Raw results are generated in `load-tests/results/` for each environment because latency without identified hardware is not comparable. This repository does not invent a numerical baseline.
 
-Evidências automatizadas versionadas:
+Versioned automated evidence includes:
 
-- contenção da mesma cadeira exige um vencedor e somente conflitos esperados;
-- a auditoria SQL exige `oversold_seats=0` e `active_hold_collisions=0`;
-- reinício de API, Redis/worker indisponíveis, relay interrompido e pool saturado têm
-  cenários reproduzíveis em `load-tests/chaos.sh`;
-- duplicação HTTP/evento/job e slow clients possuem cenários/testes dedicados.
+- same-seat contention requires one winner and only expected conflicts;
+- the SQL audit requires `oversold_seats=0` and `active_hold_collisions=0`;
+- API restarts, unavailable Redis/workers, an interrupted relay, and a saturated pool have reproducible scenarios in `load-tests/chaos.sh`;
+- duplicate HTTP requests/events/jobs and slow clients have dedicated scenarios or tests.
 
-Para publicar um resultado de ambiente, execute a matriz, mantenha os JSON gerados e
-preencha `docs/load-test-report-template.md` com commit, CPU, memória, p50/p95/p99,
-throughput e auditoria. Esse relatório passa a ser a baseline daquele hardware.
+To publish an environment result, run the matrix, retain the generated JSON files, and complete `docs/load-test-report-template.md` with the commit, CPU, memory, p50/p95/p99, throughput, and audit output. That report becomes the baseline for that hardware.

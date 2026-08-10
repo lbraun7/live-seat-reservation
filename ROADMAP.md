@@ -1,51 +1,49 @@
 # Roadmap — Live Seat Reservation
 
-Sistema de reserva de assentos para flash sales, projetado para demonstrar concorrência, consistência, tolerância a falhas, processamento assíncrono, comunicação em tempo real e observabilidade com Node.js.
+A high-demand seat reservation system built to demonstrate concurrency control, consistency, fault tolerance, asynchronous processing, real-time communication, and observability with Node.js.
 
-## Objetivo
+## Objective
 
-Construir e demonstrar um sistema no qual milhares de usuários possam disputar assentos de um mesmo evento sem overselling, inclusive na presença de:
+Build and demonstrate a system in which thousands of users can compete for seats at the same event without overselling, including during:
 
-- requisições concorrentes;
-- retries de rede;
-- mensagens duplicadas ou atrasadas;
-- reinício de processos;
-- atraso ou indisponibilidade temporária de workers;
-- múltiplas instâncias da API e do gateway WebSocket;
-- indisponibilidade temporária do Redis.
+- concurrent requests and network retries;
+- duplicated or delayed messages;
+- process restarts and unavailable workers;
+- multiple API and WebSocket gateway instances;
+- temporary Redis unavailability.
 
-O PostgreSQL será a fonte da verdade. Redis, BullMQ e WebSocket serão usados para desempenho, coordenação e propagação de eventos, mas não poderão ser necessários para garantir que um assento seja vendido apenas uma vez.
+PostgreSQL is the source of truth. Redis, BullMQ, and WebSocket improve performance, coordination, and event propagation, but they are not required to guarantee that a seat is sold only once.
 
-## Princípios arquiteturais
+## Architectural principles
 
-1. **PostgreSQL é a autoridade de consistência.**
-2. **Redis não participa da garantia de ausência de overselling.**
-3. **Toda operação que pode ser repetida deve ser idempotente.**
-4. **Processamento assíncrono assume entrega pelo menos uma vez.**
-5. **WebSocket é um mecanismo de atualização, não uma fonte da verdade.**
-6. **Dual writes serão evitados com Transactional Outbox.**
-7. **Falhas esperadas devem possuir mecanismos de recuperação.**
-8. **A correção será comprovada por constraints, testes concorrentes e testes de falha.**
-9. **O projeto começa como monólito modular executado em processos separados.**
-10. **Complexidade será adicionada somente quando houver uma hipótese mensurável.**
+1. PostgreSQL is the authority for consistency.
+2. Redis does not participate in the no-overselling guarantee.
+3. Every repeatable operation must be idempotent.
+4. Asynchronous processing assumes at-least-once delivery.
+5. WebSocket is an update mechanism, not a source of truth.
+6. Transactional Outbox prevents dual writes.
+7. Expected failures require recovery mechanisms.
+8. Constraints, concurrent tests, and failure tests prove correctness.
+9. The system starts as a modular monolith running in separate processes.
+10. Complexity is added only for a measurable hypothesis.
 
-## Invariantes do domínio
+## Domain invariants
 
-- Um assento não pode pertencer a dois pedidos confirmados.
-- Um assento pode possuir no máximo um hold ativo.
-- Um usuário só pode confirmar ou cancelar um hold que lhe pertence.
-- Um hold expirado não pode ser confirmado.
-- Confirmar e expirar o mesmo hold concorrentemente não pode corromper o estado.
-- Repetir uma operação com a mesma chave de idempotência e payload deve produzir o mesmo resultado.
-- Reutilizar a mesma chave de idempotência com outro payload deve falhar.
-- Processar o mesmo job ou evento mais de uma vez não pode duplicar efeitos.
-- Uma liberação atrasada não pode liberar um hold ou pedido mais recente.
-- Um cliente não admitido pela sala de espera não pode criar holds.
-- A indisponibilidade do Redis não pode causar overselling.
+- A seat cannot belong to two confirmed orders.
+- A seat can have at most one active hold.
+- A user may only confirm or cancel their own hold.
+- An expired hold cannot be confirmed.
+- Concurrent confirmation and expiration cannot corrupt state.
+- Repeating the same idempotency key and payload returns the same result.
+- Reusing an idempotency key with a different payload fails.
+- Reprocessing a job or event cannot duplicate effects.
+- A delayed release cannot free a newer hold or order.
+- A client not admitted by the waiting room cannot create a hold.
+- Redis unavailability cannot cause overselling.
 
-## Máquina de estados
+## State machines
 
-### Assento
+### Seat
 
 ```text
 AVAILABLE ──hold──▶ HELD ──confirm──▶ SOLD
@@ -61,21 +59,21 @@ ACTIVE ──confirm──▶ CONFIRMED
    └────expire────▶ EXPIRED
 ```
 
-As transições devem ser condicionais e atômicas no PostgreSQL. Apenas uma operação poderá vencer uma corrida entre confirmação, cancelamento e expiração.
+Transitions are conditional and atomic in PostgreSQL. Only one operation can win a race between confirmation, cancellation, and expiration.
 
-## Arquitetura-alvo
+## Target architecture
 
 ```text
                                ┌─────────────────────┐
-                               │   Waiting Room      │
-Cliente ──HTTP/WS──▶ API/Gateway│   Redis ZSET        │
+                               │ Waiting Room        │
+Client ──HTTP/WS──▶ API/Gateway│ Redis ZSET          │
                                └─────────┬───────────┘
                                          │ admission token
                                          ▼
                                ┌─────────────────────┐
                                │ Reservation Module  │
                                └─────────┬───────────┘
-                                         │ transação
+                                         │ transaction
                                          ▼
                                ┌─────────────────────┐
                                │ PostgreSQL          │
@@ -83,43 +81,36 @@ Cliente ──HTTP/WS──▶ API/Gateway│   Redis ZSET        │
                                │ orders / outbox     │
                                └──────┬────────┬─────┘
                                       │        │
-                         expiração    │        │ outbox relay
+                           expiration │        │ outbox relay
                                       ▼        ▼
                                   BullMQ    Redis Pub/Sub
                                       │        │
                                       ▼        ▼
-                                   Worker   Gateways WS
+                                   Worker   WS gateways
 ```
 
-### Processos
+### Processes
 
-- `api`: comandos e consultas HTTP;
-- `websocket-gateway`: fila, presença e atualizações em tempo real;
-- `worker`: expiração, reconciliação e tarefas assíncronas;
-- `outbox-relay`: publicação confiável dos eventos confirmados no banco.
+- `api`: HTTP commands and queries;
+- `websocket-gateway`: presence, waiting-room positions, and real-time updates;
+- `worker`: expiration, reconciliation, and asynchronous jobs;
+- `outbox-relay`: reliable publication of committed events;
+- `admission-controller`: adaptive admission from the waiting room.
 
-Todos podem compartilhar a mesma codebase e os mesmos módulos de domínio, mas devem poder ser iniciados e escalados separadamente.
+All processes share the codebase and domain modules but can be started and scaled independently.
 
-## Stack inicial
+## Technology choices
 
-- Node.js LTS;
-- TypeScript com `strict: true`;
-- Fastify;
-- PostgreSQL;
-- Redis;
-- BullMQ;
-- `ws` ou `@fastify/websocket`;
-- Kysely ou Drizzle para queries, mantendo SQL explícito para concorrência;
-- migrations SQL;
-- TypeBox/JSON Schema para contratos HTTP;
-- Pino;
-- OpenTelemetry;
-- Prometheus e Grafana;
-- Vitest;
-- k6;
+- Node.js 22 and strict TypeScript;
+- Fastify and TypeBox/JSON Schema;
+- PostgreSQL and explicit SQL for concurrency;
+- Redis, BullMQ, and `ws`;
+- SQL migrations;
+- OpenTelemetry, Prometheus, Grafana, and Tempo;
+- Vitest and k6;
 - Docker Compose.
 
-## Estrutura sugerida
+## Project structure
 
 ```text
 src/
@@ -127,423 +118,225 @@ src/
 │   ├── api/
 │   ├── websocket-gateway/
 │   ├── worker/
-│   └── outbox-relay/
+│   ├── outbox-relay/
+│   └── admission-controller/
 ├── modules/
 │   ├── catalog/
 │   ├── reservations/
 │   ├── waiting-room/
-│   ├── orders/
+│   ├── checkout/
+│   ├── outbox/
 │   └── realtime/
-├── shared/
-│   ├── database/
-│   ├── redis/
-│   ├── observability/
-│   └── contracts/
-└── bootstrap/
-
-tests/
-├── unit/
-├── integration/
-├── concurrency/
-├── e2e/
-└── load/
+└── shared/
+    ├── database/
+    ├── redis/
+    ├── health/
+    ├── config/
+    └── observability/
 ```
 
-Cada módulo poderá conter `domain`, `application`, `infrastructure` e adaptadores de transporte. As regras de negócio não devem depender diretamente de Fastify, BullMQ ou WebSocket.
+Modules separate domain, application, infrastructure, and transport concerns where appropriate. Business rules do not directly depend on Fastify, BullMQ, or WebSocket.
 
 ---
 
-# Fases de implementação
-
-## Fase 0 — Design e decisões
-
-### Tarefas
-
-- [ ] Definir objetivos e não objetivos do primeiro release.
-- [ ] Documentar as invariantes do domínio.
-- [ ] Desenhar as máquinas de estado de assento, hold e pedido.
-- [ ] Definir a política para confirmação próxima da expiração.
-- [ ] Definir a semântica de idempotência.
-- [ ] Definir SLOs iniciais e limites de capacidade.
-- [ ] Criar o diretório `docs/adr`.
-- [ ] Registrar as primeiras Architecture Decision Records.
-
-### ADRs iniciais
-
-- [ ] PostgreSQL como fonte da verdade.
-- [ ] Atualização condicional em vez de Redis lock para correção.
-- [ ] Monólito modular com múltiplos processos.
-- [ ] At-least-once com consumidores idempotentes.
-- [ ] Transactional Outbox para publicação de eventos.
-- [ ] WebSocket com versionamento e ressincronização por HTTP.
-
-### Critério de aceite
-
-As principais decisões e invariantes estão escritas antes da implementação do núcleo de reservas.
-
----
-
-## Fase 1 — Fundação do projeto
-
-### Tarefas
-
-- [x] Inicializar Git e o projeto Node.js.
-- [x] Configurar TypeScript estrito.
-- [x] Configurar lint, formatter e typecheck.
-- [x] Criar Docker Compose com PostgreSQL e Redis.
-- [x] Adicionar configuração validada no startup.
-- [x] Criar migrations e comando de execução.
-- [x] Implementar logs estruturados com correlation ID.
-- [x] Adicionar endpoints de liveness e readiness.
-- [x] Implementar shutdown gracioso e encerramento de conexões.
-- [x] Configurar CI para lint, typecheck, testes e build.
-- [x] Criar `.env.example` sem segredos reais.
-
-### Critério de aceite
-
-Um comando sobe a infraestrutura e a aplicação; CI e health checks passam em ambiente limpo.
-
----
-
-## Fase 2 — Catálogo de eventos e assentos
-
-### Tarefas
-
-- [x] Criar tabelas `events`, `seat_sections` e `seats`.
-- [x] Garantir unicidade de `event_id + seat_label`.
-- [x] Criar seed de um evento com milhares de assentos.
-- [x] Implementar consulta do evento.
-- [x] Implementar snapshot do mapa de assentos.
-- [x] Agrupar ou paginar assentos por seção.
-- [x] Adicionar campo monotônico de versão ao estado publicado.
-- [x] Validar e serializar requests e responses por schema.
-
-### Critério de aceite
-
-Um cliente consegue consultar um snapshot consistente e versionado do mapa de assentos.
-
----
-
-## Fase 3 — Núcleo de reservas
-
-### Tarefas
-
-- [x] Criar tabelas `holds`, `orders` e `order_items`.
-- [x] Modelar constraints que impeçam venda duplicada.
-- [x] Implementar criação de hold com atualização condicional.
-- [x] Calcular expiração usando o relógio do PostgreSQL.
-- [x] Implementar consulta, cancelamento e confirmação de hold.
-- [x] Verificar ownership em todas as transições.
-- [x] Implementar retry limitado para deadlock e erro de serialização.
-- [x] Criar códigos de erro de domínio estáveis.
-- [x] Implementar tabela e middleware de idempotência.
-- [x] Persistir hash do request e resultado da operação.
-
-### Testes obrigatórios
-
-- [x] Cem ou mais requisições disputam o mesmo assento e exatamente uma vence.
-- [x] Repetir uma request retorna o mesmo hold.
-- [x] Mesma chave com payload diferente retorna conflito.
-- [x] Hold expirado não pode ser confirmado.
-- [x] Um usuário não opera o hold de outro.
-- [x] Confirmação e expiração concorrentes preservam as invariantes.
-- [x] Um assento confirmado jamais volta para disponível.
-
-### Critério de aceite
-
-Os testes comprovam zero overselling usando apenas o PostgreSQL como mecanismo de correção.
-
----
-
-## Fase 4 — Expiração resiliente
-
-### Tarefas
-
-- [x] Configurar BullMQ.
-- [x] Agendar delayed job na criação do hold.
-- [x] Implementar worker de expiração idempotente.
-- [x] Implementar retries com backoff e jitter.
-- [x] Criar estratégia para jobs definitivamente falhos.
-- [x] Implementar reconciliador periódico de holds vencidos.
-- [x] Processar lotes com `FOR UPDATE SKIP LOCKED`.
-- [x] Permitir várias instâncias do reconciliador.
-- [x] Medir atraso entre expiração prevista e efetiva.
-
-### Testes obrigatórios
-
-- [x] Executar duas vezes o mesmo job não causa efeito adicional.
-- [x] Worker reiniciado recupera holds vencidos.
-- [x] Reconciliador corrige um delayed job perdido ou atrasado.
-- [x] Job antigo não libera um hold ou pedido mais recente.
-
-### Critério de aceite
-
-Holds vencidos são recuperados mesmo após indisponibilidade temporária dos workers.
-
----
-
-## Fase 5 — Transactional Outbox
-
-### Tarefas
-
-- [x] Criar tabela `outbox_events`.
-- [x] Inserir o evento na mesma transação da mudança de domínio.
-- [x] Implementar relay em lotes.
-- [x] Publicar eventos no Redis.
-- [x] Registrar tentativas e publicação concluída.
-- [x] Permitir publicação duplicada sem efeitos incorretos.
-- [x] Limpar ou arquivar registros antigos.
-- [x] Adicionar métrica de eventos pendentes e idade do mais antigo.
-
-### Testes obrigatórios
-
-- [x] Simular queda entre commit e publicação.
-- [x] Confirmar publicação após reinício do relay.
-- [x] Processar evento duplicado sem duplicar efeitos.
-
-### Critério de aceite
-
-Toda mudança confirmada no banco produz um evento recuperável sem dual write inseguro.
-
----
-
-## Fase 6 — Atualizações em tempo real
-
-### Tarefas
-
-- [x] Criar gateway WebSocket autenticado.
-- [x] Implementar inscrição por evento.
-- [x] Implementar heartbeat com ping/pong.
-- [x] Remover conexões mortas.
-- [x] Propagar eventos entre múltiplas instâncias via Redis.
-- [x] Adicionar `eventId`, `seatId`, `version` e `occurredAt` aos eventos.
-- [x] Ignorar eventos antigos ou duplicados no consumidor.
-- [x] Detectar gaps de versão.
-- [x] Permitir ressincronização por snapshot HTTP.
-- [x] Limitar tamanho e frequência de mensagens.
-- [x] Controlar clientes lentos usando `bufferedAmount`.
-- [x] Implementar graceful draining no gateway.
-
-### Testes obrigatórios
-
-- [x] Clientes conectados a gateways diferentes recebem a atualização.
-- [x] Mensagem duplicada não regride o estado.
-- [x] Gap de versão provoca ressincronização.
-- [x] Reconnect storm não derruba o processo.
-- [x] Cliente lento não causa crescimento ilimitado de memória.
-
-### Critério de aceite
-
-O mapa é atualizado em múltiplas instâncias e consegue se recuperar de mensagens perdidas.
-
----
-
-## Fase 7 — Sala de espera
-
-### Tarefas
-
-- [x] Implementar fila no Redis ZSET.
-- [x] Definir ordenação determinística para empates.
-- [x] Implementar heartbeat de sessões em espera.
-- [x] Informar posição aproximada via WebSocket.
-- [x] Criar admission controller com liberação em lotes.
-- [x] Emitir admission token curto, assinado e vinculado ao usuário e evento.
-- [x] Impedir reutilização da admissão.
-- [x] Proteger a criação de holds com o admission token.
-- [x] Aplicar rate limit por usuário, sessão e IP.
-- [x] Limitar holds simultâneos por usuário.
-- [x] Implementar backpressure quando banco ou workers estiverem saturados.
-- [x] Evoluir lote fixo para admissão adaptativa baseada em métricas.
-
-### Testes obrigatórios
-
-- [x] Cliente não admitido não consegue reservar.
-- [x] Token expirado ou de outro evento é rejeitado.
-- [x] Token consumido não pode ser reutilizado.
-- [x] Sessão abandonada é removida.
-- [x] Múltiplos admission controllers não liberam além do limite definido.
-
-### Critério de aceite
-
-A fila controla efetivamente a taxa de entrada; não serve apenas como posição visual.
-
----
-
-## Fase 8 — Checkout e pagamento simulado
-
-### Tarefas
-
-- [x] Criar fake payment provider.
-- [x] Iniciar checkout a partir de um hold válido.
-- [x] Implementar webhook assinado.
-- [x] Deduplicar webhooks.
-- [x] Tolerar callbacks fora de ordem.
-- [x] Confirmar pedido atomicamente.
-- [x] Definir política para pagamento concluído após a expiração.
-- [x] Implementar timeout, falha e cancelamento do pagamento.
-- [x] Registrar histórico mínimo das transições.
-
-### Testes obrigatórios
-
-- [x] Webhook duplicado não cria dois pedidos.
-- [x] Pagamento atrasado segue a política documentada.
-- [x] Falha de pagamento não vende o assento.
-- [x] Retry do checkout retorna o resultado original.
-
-### Critério de aceite
-
-O fluxo completo tolera webhooks duplicados, atrasados e fora de ordem.
-
----
-
-## Fase 9 — Observabilidade
-
-### Tarefas
-
-- [x] Expor métricas Prometheus.
-- [x] Criar dashboards Grafana.
-- [x] Instrumentar traces com OpenTelemetry.
-- [x] Correlacionar API, transação, job, outbox e broadcast.
-- [x] Medir uso e fila do pool de conexões.
-- [x] Monitorar event-loop lag.
-- [x] Criar alertas e runbooks básicos.
-- [x] Redigir estratégia de redaction de dados sensíveis nos logs.
-
-### Métricas mínimas
-
-- `http_request_duration_seconds`;
-- `hold_attempts_total`;
-- `hold_conflicts_total`;
-- `active_holds`;
-- `expired_holds_total`;
-- `expiration_lag_seconds`;
-- `waiting_room_size`;
-- `admission_rate`;
-- `websocket_connections`;
-- `websocket_broadcast_duration_seconds`;
-- `websocket_dropped_messages_total`;
-- `outbox_pending_events`;
-- `outbox_oldest_event_age_seconds`;
-- `event_loop_lag_seconds`;
-- tamanho e saturação do pool PostgreSQL;
-- atraso e quantidade de jobs BullMQ.
-
-### Critério de aceite
-
-É possível identificar contenção, saturação, atraso de jobs, gaps de publicação e clientes lentos pelos dashboards e traces.
-
----
-
-## Fase 10 — Testes de carga e resiliência
-
-### Cenários k6
-
-- [x] Milhares de usuários reservando assentos distintos.
-- [x] Milhares de usuários disputando o mesmo assento.
-- [x] Spike de entrada na sala de espera.
-- [x] Reconnect storm no WebSocket.
-- [x] Redis indisponível durante reservas.
-- [x] Worker indisponível por vários minutos.
-- [x] API reiniciada durante a criação de holds.
-- [x] Outbox relay interrompido após commits.
-- [x] Eventos e jobs entregues mais de uma vez.
-- [x] Pool PostgreSQL saturado.
-- [x] Clientes WebSocket deliberadamente lentos.
-
-### Resultados a registrar
-
-- throughput;
-- p50, p95 e p99;
-- taxa de erro;
-- conflitos esperados;
-- event-loop lag;
-- CPU e memória por processo;
-- conexões WebSocket por instância;
-- tempo de propagação do broadcast;
-- atraso de expiração;
-- tamanho e idade da outbox;
-- número de assentos vendidos mais de uma vez, que deve ser zero.
-
-### Experimento opcional: Redis fast-rejection
-
-- [ ] Medir o fluxo usando apenas PostgreSQL.
-- [ ] Adicionar lock curto no Redis apenas como otimização.
-- [ ] Repetir o mesmo teste.
-- [ ] Comparar throughput, latência, carga no banco e comportamento sob falhas.
-- [ ] Documentar por que a correção continua pertencendo ao PostgreSQL.
-
-### Critério de aceite
-
-O relatório é reproduzível e demonstra zero overselling nos cenários de contenção e falha definidos.
-
----
-
-## Fase 11 — Deploy e apresentação
-
-### Tarefas
-
-- [x] Criar imagens Docker separadas por processo.
-- [x] Executar migrations de forma controlada no deploy.
-- [x] Configurar readiness com dependências essenciais.
-- [x] Implementar draining durante deploy e encerramento.
-- [x] Publicar diagrama de arquitetura.
-- [x] Publicar diagramas de sequência dos fluxos críticos.
-- [x] Adicionar threat model.
-- [x] Adicionar capacity planning básico.
-- [x] Documentar falhas toleradas e não toleradas.
-- [x] Criar runbook de incidentes.
-- [x] Publicar ADRs e resultados dos testes de carga.
-- [x] Publicar uma demonstração curta e reproduzível do sistema sob disputa concorrente.
-
-### Critério de aceite
-
-Uma pessoa consegue subir, testar, observar e compreender as decisões do sistema seguindo apenas o repositório.
-
----
-
-## Fora do primeiro release
-
-Itens deliberadamente adiados para evitar complexidade prematura:
-
-- múltiplas regiões;
-- Kubernetes;
-- Kafka;
-- Redlock com múltiplos nós independentes;
-- event sourcing completo;
-- pagamento real;
-- frontend elaborado;
-- pricing dinâmico;
-- seleção automática sofisticada de assentos;
-- microsserviços em repositórios separados.
-
-Esses itens podem ser descritos em uma seção de evolução para produção, sem serem necessários para provar o núcleo do projeto.
-
-## Evidências esperadas para o portfólio
-
-Ao final, o repositório deverá apresentar:
-
-- um teste concorrente com apenas um vencedor por assento;
-- zero overselling mesmo quando Redis estiver indisponível;
-- teste da corrida entre confirmação e expiração;
-- recuperação da outbox após interrupção;
-- recuperação do cliente WebSocket após gap de versão;
-- dashboard de event-loop lag, backpressure e filas;
-- comparação PostgreSQL puro versus Redis como fast-rejection;
-- relatório de carga com p50, p95, p99 e throughput;
-- ADRs explicando os trade-offs;
-- seção clara sobre limites e modos de falha.
-
-## Definição de pronto do projeto
-
-O projeto será considerado pronto quando:
-
-- [ ] todas as invariantes críticas possuírem testes automatizados;
-- [ ] o teste de carga reproduzível demonstrar zero overselling;
-- [ ] retries e duplicações forem tratados de forma idempotente;
-- [ ] expiração funcionar após indisponibilidade de workers;
-- [ ] publicação de eventos sobreviver a crashes;
-- [ ] clientes em tempo real conseguirem ressincronizar o estado;
-- [ ] sala de espera controlar a taxa real de admissão;
-- [ ] métricas, logs e traces permitirem diagnosticar os fluxos críticos;
-- [ ] CI, Docker Compose e documentação permitirem reprodução por terceiros;
-- [ ] decisões e limitações estiverem documentadas no README e nas ADRs.
+# Implementation phases
+
+## Phase 0 — Design and decisions
+
+- [x] Define the first release objectives and non-objectives.
+- [x] Document domain invariants and state machines.
+- [x] Define expiration, confirmation, and idempotency semantics.
+- [x] Define initial SLOs and capacity limits.
+- [x] Record PostgreSQL, Transactional Outbox, and modular-monolith ADRs.
+- [x] Document at-least-once delivery and WebSocket resynchronization.
+
+**Acceptance:** the main decisions and invariants are documented before and alongside the reservation core.
+
+## Phase 1 — Project foundation
+
+- [x] Initialize Git and the Node.js project.
+- [x] Configure strict TypeScript, linting, formatting, and type checking.
+- [x] Create Docker Compose with PostgreSQL and Redis.
+- [x] Validate configuration during startup.
+- [x] Add SQL migrations and their runner.
+- [x] Implement structured logs and correlation IDs.
+- [x] Add liveness and readiness endpoints.
+- [x] Implement graceful shutdown.
+- [x] Configure CI for linting, type checking, tests, and build.
+- [x] Add a secret-free `.env.example`.
+
+**Acceptance:** one command starts the infrastructure and application; CI and health checks pass in a clean environment.
+
+## Phase 2 — Event and seat catalog
+
+- [x] Create `events`, `seat_sections`, and `seats` tables.
+- [x] Enforce `event_id + seat_label` uniqueness.
+- [x] Seed an event with thousands of seats.
+- [x] Implement event queries and versioned seat-map snapshots.
+- [x] Paginate seats by section.
+- [x] Validate and serialize requests and responses with schemas.
+
+**Acceptance:** a client can fetch a consistent, versioned seat-map snapshot.
+
+## Phase 3 — Reservation core
+
+- [x] Create `holds`, `orders`, and `order_items` tables.
+- [x] Add constraints that prevent duplicate sales.
+- [x] Create holds through conditional updates.
+- [x] Calculate expiration using PostgreSQL time.
+- [x] Query, cancel, and confirm holds with ownership checks.
+- [x] Add bounded deadlock/serialization retries.
+- [x] Define stable domain error codes.
+- [x] Persist idempotency request hashes and results.
+- [x] Prove one winner across 100 same-seat requests.
+- [x] Test replay, conflicting payloads, ownership, expiration races, and terminal states.
+
+**Acceptance:** tests prove zero overselling using PostgreSQL as the correctness mechanism.
+
+## Phase 4 — Resilient expiration
+
+- [x] Configure BullMQ and delayed expiration jobs.
+- [x] Implement an idempotent worker with retry and backoff.
+- [x] Handle permanently failed jobs.
+- [x] Reconcile expired holds periodically.
+- [x] Process concurrent batches with `FOR UPDATE SKIP LOCKED`.
+- [x] Support multiple reconciler instances.
+- [x] Measure effective expiration delay.
+- [x] Test duplicate jobs, worker restart, lost jobs, and stale releases.
+
+**Acceptance:** expired holds are eventually released even after worker or Redis failures.
+
+## Phase 5 — Transactional Outbox
+
+- [x] Create `outbox_events`.
+- [x] Write state and events in the same transaction.
+- [x] Implement concurrent batch relays.
+- [x] Publish to Redis and record attempts/completion.
+- [x] Tolerate duplicate publication.
+- [x] Archive old records.
+- [x] Expose pending-event and oldest-event-age metrics.
+- [x] Test crashes around commit/publication and duplicate consumption.
+
+**Acceptance:** every committed domain change is eventually published without unsafe dual writes.
+
+## Phase 6 — Real-time updates
+
+- [x] Create an authenticated WebSocket gateway.
+- [x] Support per-event subscriptions and ping/pong heartbeat.
+- [x] Remove dead connections.
+- [x] Propagate events across gateway instances through Redis.
+- [x] Include `eventId`, `seatId`, `version`, and `occurredAt`.
+- [x] Ignore old/duplicate events and detect version gaps.
+- [x] Resynchronize through HTTP snapshots.
+- [x] Limit message size/rate and slow-client buffers.
+- [x] Implement graceful gateway draining.
+- [x] Test multi-gateway delivery, duplicates, gaps, reconnect storms, and slow clients.
+
+**Acceptance:** clients receive low-latency updates and recover safely after disconnects or gaps.
+
+## Phase 7 — Waiting room
+
+- [x] Implement a deterministic Redis ZSET queue.
+- [x] Add waiting-session heartbeats and approximate WebSocket positions.
+- [x] Admit batches through one or more controllers.
+- [x] Issue short-lived signed tokens bound to user, event, and session.
+- [x] Prevent token reuse and protect hold creation.
+- [x] Rate-limit by user, session, and IP.
+- [x] Limit concurrent holds per user.
+- [x] Apply database/worker backpressure and adaptive admission.
+- [x] Test rejected, expired, mismatched, reused, and abandoned sessions.
+- [x] Prove multiple controllers do not exceed global capacity.
+
+**Acceptance:** traffic reaching the critical reservation path is controlled and horizontally scalable.
+
+## Phase 8 — Checkout and simulated payment
+
+- [x] Create a fake payment provider.
+- [x] Start checkout from a valid hold.
+- [x] Authenticate and deduplicate webhooks.
+- [x] Handle out-of-order callbacks.
+- [x] Confirm orders atomically.
+- [x] Define late-payment behavior.
+- [x] Implement timeout, failure, and cancellation.
+- [x] Record payment transition history.
+- [x] Test duplicate webhooks, late payments, failure paths, and checkout replay.
+
+**Acceptance:** payment retries and callbacks cannot duplicate orders or sell expired seats.
+
+## Phase 9 — Observability
+
+- [x] Expose Prometheus metrics.
+- [x] Provision Grafana dashboards.
+- [x] Instrument traces with OpenTelemetry.
+- [x] Correlate API, transaction, job, outbox, and broadcast activity.
+- [x] Measure connection-pool use and waiters.
+- [x] Monitor event-loop lag.
+- [x] Add alerts, runbooks, and a sensitive-data redaction policy.
+
+Minimum signals include HTTP rate/error/duration, hold attempts/conflicts, active holds, expiration delay, outbox backlog/age, waiting-room size/wait time, admission rate, WebSocket connections/broadcast duration, pool waiters, and event-loop lag.
+
+**Acceptance:** a contention or failure experiment can be diagnosed without attaching a debugger.
+
+## Phase 10 — Load and resilience testing
+
+- [x] Thousands of users selecting distinct seats.
+- [x] Thousands of users competing for the same seat.
+- [x] Waiting-room arrival spike.
+- [x] WebSocket reconnect storm and deliberately slow clients.
+- [x] Redis and worker unavailability.
+- [x] API restart during hold creation.
+- [x] Interrupted outbox relay.
+- [x] Duplicate events and jobs.
+- [x] PostgreSQL pool saturation.
+- [x] Record p50/p95/p99, throughput, errors, conflicts, resources, backlogs, and recovery.
+- [ ] Evaluate optional Redis fast rejection against the PostgreSQL-only baseline.
+
+**Acceptance:** the reproducible suite records zero overselling and documents hardware-specific limits and recovery behavior.
+
+## Phase 11 — Deployment and presentation
+
+- [x] Create separate Docker targets for each process.
+- [x] Run migrations as a controlled deployment job.
+- [x] Configure dependency-aware readiness and graceful draining.
+- [x] Publish architecture and critical sequence diagrams.
+- [x] Add a threat model and basic capacity planning.
+- [x] Document tolerated and non-tolerated failures.
+- [x] Add incident and observability runbooks.
+- [x] Publish ADRs, load-test guidance, and a reproducible concurrency demo.
+- [x] Create a complete portfolio-oriented English README.
+
+**Acceptance:** a reviewer can understand the trade-offs, start the system, reproduce contention, and inspect correctness and observability evidence.
+
+## Outside the first release
+
+- a complete frontend and seat-map editor;
+- real authentication, authorization, and account management;
+- integration with a real payment provider;
+- dynamic pricing, promotions, refunds, transfers, and resale;
+- Kubernetes, multi-region active-active, and global routing;
+- a dedicated analytics pipeline and data warehouse;
+- service decomposition without measured need.
+
+## Expected portfolio evidence
+
+- an architecture diagram and critical sequence diagrams;
+- ADRs explaining PostgreSQL authority, outbox delivery, and process boundaries;
+- concurrent tests that prove one winner;
+- load-test reports with identified hardware and commit;
+- dashboards and traces for successful and failed flows;
+- fault-injection evidence and recovery times;
+- SQL invariant audit output with zero overselling;
+- a short reproducible demo and complete setup guide.
+
+## Definition of done
+
+- [x] critical invariants have automated tests;
+- [x] a reproducible load test audits zero overselling;
+- [x] retries and duplicates are handled idempotently;
+- [x] expiration recovers after worker unavailability;
+- [x] event publication survives crashes;
+- [x] real-time clients can resynchronize state;
+- [x] the waiting room controls admission rate;
+- [x] metrics, logs, and traces diagnose critical flows;
+- [x] CI, Docker Compose, and documentation support third-party reproduction;
+- [x] decisions and limitations are documented in the README and ADRs.

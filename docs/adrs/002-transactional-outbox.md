@@ -1,7 +1,5 @@
-# ADR 002 — Transactional Outbox com entrega pelo menos uma vez
+# ADR 002 — Transactional Outbox with at-least-once delivery
 
-**Status:** aceito.
+**Status:** accepted.
 
-A mudança e seu evento são gravados na mesma transação. Relays concorrentes usam
-`SKIP LOCKED`; publicar antes de marcar pode duplicar. Preferimos duplicação recuperável a
-perda silenciosa, exigindo `eventId` estável e consumidores idempotentes.
+The state change and its event are written in the same transaction. Concurrent relays use `SKIP LOCKED`; publishing before marking an event as published may produce duplicates. Recoverable duplication is preferred over silent loss, which requires stable `eventId` values and idempotent consumers.

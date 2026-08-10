@@ -1,20 +1,20 @@
-# Modos de falha
+# Failure modes
 
-| Falha                              | Comportamento tolerado                                                        | Recuperação                                                   |
-| ---------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Redis indisponível                 | PostgreSQL continua impedindo overselling; admissão, jobs e realtime degradam | readiness falha; restaurar Redis/AOF e reconciliar expirações |
-| worker parado                      | holds vencidos podem permanecer temporariamente                               | reconciliador processa o backlog ao voltar                    |
-| relay parado ou crash após publish | outbox acumula ou um evento é duplicado                                       | relay retoma; `eventId` permite deduplicação                  |
-| API reiniciada                     | request em voo pode perder resposta, não atomicidade                          | cliente repete com a mesma idempotency-key                    |
-| gateway reiniciado                 | sockets recebem 1012 e perdem updates temporariamente                         | reconectar, buscar snapshot e assinar pela versão             |
-| PostgreSQL indisponível            | comandos críticos param com readiness 503                                     | failover/restore externo e retry idempotente                  |
-| pool saturado                      | latência cresce e admissão reduz lote                                         | reduzir entrada, escalar API ou corrigir query/pool           |
+| Failure                                | Tolerated behavior                                                            | Recovery                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Redis unavailable                      | PostgreSQL still prevents overselling; admission, jobs, and real time degrade | readiness fails; restore Redis/AOF and reconcile expirations |
+| worker stopped                         | expired holds may remain temporarily                                          | reconciler processes the backlog after restart               |
+| relay stopped or crashes after publish | outbox accumulates or an event is duplicated                                  | relay resumes; `eventId` enables deduplication               |
+| API restarted                          | an in-flight request may lose its response, but not atomicity                 | client retries with the same idempotency key                 |
+| gateway restarted                      | sockets receive 1012 and temporarily miss updates                             | reconnect, fetch a snapshot, and subscribe from its version  |
+| PostgreSQL unavailable                 | critical commands stop and readiness returns 503                              | external failover/restore and idempotent retry               |
+| pool saturated                         | latency rises and admission reduces its batch                                 | reduce admission, scale the API, or fix the query/pool       |
 
-## Não tolerado neste release
+## Not tolerated in this release
 
-- perda ou corrupção do PostgreSQL sem backup/failover externo;
-- partição multi-região, active-active ou consistência entre regiões;
-- perda permanente simultânea de Redis/AOF e PostgreSQL;
-- comprometimento de segredos ou credenciais;
-- DDoS além dos limites locais, pois WAF/CDN não fazem parte do repositório;
-- alteração incompatível de schema sem estratégia expand/contract.
+- PostgreSQL loss or corruption without external backups/failover;
+- multi-region partitions, active-active operation, or cross-region consistency;
+- simultaneous permanent loss of Redis/AOF and PostgreSQL;
+- compromised secrets or credentials;
+- DDoS beyond local limits, because WAF/CDN controls are outside this repository;
+- incompatible schema changes without an expand/contract strategy.

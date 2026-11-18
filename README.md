@@ -2,28 +2,32 @@
 
 > A production-inspired backend that demonstrates how to reserve and sell seats under heavy concurrency without overselling.
 
-When 100 clients compete for the same seat, PostgreSQL selects exactly one winner. The system also handles request retries, duplicated and delayed webhooks, expired reservations, lost jobs, process restarts, and gaps in real-time updates.
+## The engineering problem
 
-This project goes beyond CRUD to explore transactional concurrency, idempotency, fault recovery, asynchronous processing, and real-time communication. It is implemented as a **modular monolith running as specialized processes**, with PostgreSQL as the source of truth and Redis used for coordination rather than correctness.
+Seat reservation looks simple until hundreds of clients read the same seat as available and try to reserve it at once. A naive read-then-write flow can accept multiple buyers, while retries, duplicated messages, delayed payments, and crashed workers introduce additional ways to corrupt state.
+
+This project models that failure-prone environment and keeps the core business invariants intact. When 100 concurrent requests compete for the same seat, PostgreSQL selects exactly one winner. Expired holds are eventually released, duplicated operations remain safe, and real-time clients can recover from missed updates.
+
+The system is implemented as a **modular monolith running as specialized processes**. PostgreSQL is the source of truth; Redis is deliberately limited to queueing, coordination, jobs, and event propagation rather than reservation correctness.
 
 > Backend-only project. Its behavior is demonstrated through HTTP, WebSocket, automated tests, SQL invariant audits, and k6 load scenarios.
 
-## What this project demonstrates
+## Project highlights
 
-- zero overselling enforced by PostgreSQL constraints, locks, and transactions;
-- 100 concurrent requests for the same seat with exactly one winner;
-- idempotent commands, including detection of keys reused with a different payload;
-- a distributed Redis waiting room with limited admission and controlled-use HMAC tokens;
-- hold expiration through BullMQ plus database reconciliation after failures;
-- simulated payments with signed webhooks, deduplication, and late-event handling;
-- reliable event publication through Transactional Outbox, without dual writes;
-- versioned WebSocket updates with HTTP snapshot resynchronization;
-- health checks, graceful shutdown, correlated logs, Prometheus, Grafana, and Tempo;
-- unit, integration, concurrency, load, resilience, and SQL invariant tests.
+- **Correctness under contention:** PostgreSQL transactions, row locks, conditional updates, and constraints prevent overselling.
+- **Idempotent operations:** safe HTTP retries detect both repeated requests and keys reused with a different payload.
+- **Controlled admission:** a distributed Redis waiting room limits how many buyers reach the reservation flow.
+- **Failure recovery:** BullMQ schedules hold expiration while a PostgreSQL reconciler recovers lost or delayed jobs.
+- **Asynchronous payments:** signed webhooks are deduplicated, ordered, and handled safely after terminal states.
+- **Reliable event propagation:** Transactional Outbox prevents database changes from being lost between commit and publication.
+- **Recoverable real-time updates:** versioned WebSocket messages detect gaps and direct clients back to authoritative HTTP snapshots.
+- **Operational evidence:** unit, integration, concurrency, load, resilience, and SQL invariant tests exercise the guarantees.
 
-## Tech stack
+## Built with
 
-Node.js 22, strict TypeScript, Fastify, PostgreSQL 17, Redis 7, BullMQ, WebSocket (`ws`), TypeBox, Vitest, k6, OpenTelemetry, Prometheus, Grafana, Tempo, and Docker Compose.
+- **Application:** Node.js 22, strict TypeScript, Fastify, TypeBox, and WebSocket (`ws`).
+- **Data and messaging:** PostgreSQL 17, Redis 7, BullMQ, and Transactional Outbox.
+- **Quality and operations:** Vitest, k6, OpenTelemetry, Prometheus, Grafana, Tempo, and Docker Compose.
 
 ## Architecture
 

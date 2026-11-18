@@ -189,47 +189,29 @@ The design favors explicit consistency and recoverability over the appearance of
 
 See the [detailed architecture](docs/architecture.md), [accepted ADRs](docs/adrs), [failure modes](docs/failure-modes.md), and [threat model](docs/threat-model.md) for the complete reasoning.
 
-## Run with Docker
+## Run locally
 
-### Requirements
-
-- Docker with Docker Compose;
-- ports `3000`, `3001`, `3002`, `5432`, `6379`, `9090`, `9464`, and `3200` available.
-
-Start the complete stack:
+Requirements: Docker with Compose and ports `3000`, `3001`, `3002`, `5432`, `6379`, `9090`, `9464`, and `3200` available.
 
 ```bash
-docker compose up --build
-```
-
-`migrate` and `seed` are idempotent one-shot jobs. The API only starts after both complete successfully.
-
-In another terminal, verify the deployment:
-
-```bash
+docker compose up --build -d
 docker compose ps
-curl --fail http://localhost:3000/health/live
 curl --fail http://localhost:3000/health/ready
 ```
 
-| Service       | Address                                     |
-| ------------- | ------------------------------------------- |
-| API           | `http://localhost:3000`                     |
-| WebSocket     | `ws://localhost:3001/ws`                    |
-| Relay metrics | `http://localhost:9464/metrics`             |
-| Prometheus    | `http://localhost:9090`                     |
-| Grafana       | `http://localhost:3002` (`admin` / `admin`) |
-| Tempo         | `http://localhost:3200`                     |
+`migrate` and `seed` are idempotent one-shot jobs. The API starts only after both finish successfully.
 
-Stop the stack while preserving its volumes:
+| Service    | Address                                     |
+| ---------- | ------------------------------------------- |
+| API        | `http://localhost:3000`                     |
+| WebSocket  | `ws://localhost:3001/ws`                    |
+| Grafana    | `http://localhost:3002` (`admin` / `admin`) |
+| Prometheus | `http://localhost:9090`                     |
+| Tempo      | `http://localhost:3200`                     |
 
-```bash
-docker compose down
-```
+Stop the stack with `docker compose down`. Add `-v` only when intentionally deleting all local volumes.
 
-Use `docker compose down -v` only when you intentionally want to delete local data and start over.
-
-## Local development
+For source-level development, install dependencies, start PostgreSQL and Redis, migrate, seed, and run each workload in its own terminal:
 
 ```bash
 cp .env.example .env
@@ -237,137 +219,21 @@ npm ci
 docker compose up -d postgres redis
 npm run migrate
 npm run seed
-```
-
-Start each workload in a separate terminal:
-
-```bash
 npm run dev
-npm run dev:worker
-npm run dev:outbox-relay
-npm run dev:websocket-gateway
-npm run dev:admission-controller
 ```
 
-## Step-by-step testing guide
+The remaining processes are available through `dev:worker`, `dev:outbox-relay`, `dev:websocket-gateway`, and `dev:admission-controller`.
 
-### Option A — quick portfolio demo
+## Testing
 
-With the complete stack running:
-
-```bash
-./scripts/demo-concurrency.sh
-```
-
-The script checks the containers, runs a concentrated k6 race for the same seat, and executes the SQL invariant audit. The key expected result is `oversold_seats=0`. Results are saved to `load-tests/results/`.
-
-### Option B — complete manual flow
-
-Set the fixed IDs created by the seed job:
-
-```bash
-API_URL=http://localhost:3000
-EVENT_ID=10000000-0000-4000-8000-000000000001
-SECTION_ID=20000000-0000-4000-8000-000000000001
-USER_ID=40000000-0000-4000-8000-000000000001
-```
-
-1. Query the event and available seats:
-
-```bash
-curl "$API_URL/events/$EVENT_ID"
-curl "$API_URL/events/$EVENT_ID/seats?sectionId=$SECTION_ID&limit=3"
-```
-
-Copy the `id` of an `AVAILABLE` seat from the second response into `SEAT_ID`.
-
-2. Join the waiting room:
-
-```bash
-curl -X POST "$API_URL/events/$EVENT_ID/waiting-room" \
-  -H "x-user-id: $USER_ID"
-```
-
-Copy `sessionId` into `SESSION_ID`. Send heartbeats until the response contains a `token`:
-
-```bash
-curl -X POST \
-  "$API_URL/events/$EVENT_ID/waiting-room/$SESSION_ID/heartbeat" \
-  -H "x-user-id: $USER_ID"
-```
-
-Copy the token into `ADMISSION_TOKEN`.
-
-3. Create the hold:
-
-```bash
-curl -i -X POST "$API_URL/events/$EVENT_ID/holds" \
-  -H 'content-type: application/json' \
-  -H "x-user-id: $USER_ID" \
-  -H "x-admission-token: $ADMISSION_TOKEN" \
-  -H 'idempotency-key: portfolio-hold-1' \
-  -d "{\"seatId\":\"$SEAT_ID\"}"
-```
-
-Copy `id` into `HOLD_ID`. Repeating the exact request returns the persisted response with the `idempotency-replayed: true` header. Reusing the key with another seat returns `IDEMPOTENCY_KEY_REUSED`.
-
-4. Start checkout:
-
-```bash
-curl -X POST "$API_URL/holds/$HOLD_ID/checkout" \
-  -H "x-user-id: $USER_ID" \
-  -H 'idempotency-key: portfolio-checkout-1'
-```
-
-Copy `id` into `PAYMENT_ID` and `providerPaymentId` into `PROVIDER_PAYMENT_ID`. Query the payment with:
-
-```bash
-curl "$API_URL/payments/$PAYMENT_ID" -H "x-user-id: $USER_ID"
-```
-
-5. Simulate a successful webhook. Generate the values and signature with the local Compose secret:
-
-```bash
-WEBHOOK_EVENT_ID=$(node -e "console.log(crypto.randomUUID())")
-OCCURRED_AT=$(node -e "console.log(new Date().toISOString())")
-SIGNATURE=$(node -e "const c=require('crypto'); const [,e,p,t,o]=process.argv; console.log(c.createHmac('sha256','local-development-payment-webhook-secret').update([e,p,t,o].join('.')).digest('hex'))" "$WEBHOOK_EVENT_ID" "$PROVIDER_PAYMENT_ID" payment.succeeded "$OCCURRED_AT")
-
-curl -X POST "$API_URL/webhooks/fake-payment" \
-  -H 'content-type: application/json' \
-  -H "x-payment-signature: $SIGNATURE" \
-  -d "{\"eventId\":\"$WEBHOOK_EVENT_ID\",\"providerPaymentId\":\"$PROVIDER_PAYMENT_ID\",\"type\":\"payment.succeeded\",\"occurredAt\":\"$OCCURRED_AT\"}"
-```
-
-6. Verify the outcome:
-
-```bash
-curl "$API_URL/holds/$HOLD_ID" -H "x-user-id: $USER_ID"
-curl "$API_URL/payments/$PAYMENT_ID" -H "x-user-id: $USER_ID"
-curl "$API_URL/events/$EVENT_ID/seats?sectionId=$SECTION_ID&limit=500"
-```
-
-The expected state is a `CONFIRMED` hold, a `SUCCEEDED` payment, an `orderId`, and a `SOLD` seat.
-
-To test the alternative path before sending the webhook:
-
-```bash
-curl -X POST "$API_URL/payments/$PAYMENT_ID/cancel" \
-  -H "x-user-id: $USER_ID" \
-  -H 'idempotency-key: portfolio-payment-cancel-1'
-```
-
-### Option C — automated tests
-
-Run the fast checks without external dependencies:
+Run linting, formatting, type checking, dependency-free tests, and the production build:
 
 ```bash
 npm ci
 npm run check
 ```
 
-This runs linting, formatting checks, type checking, tests, and the production build. Without test URLs, Vitest marks suites that require PostgreSQL or Redis as `skipped`.
-
-To run the complete integration suite, start and migrate the infrastructure first:
+Run the PostgreSQL and Redis integration suites:
 
 ```bash
 docker compose up -d postgres redis
@@ -379,23 +245,9 @@ TEST_REDIS_URL=redis://localhost:6379 \
 npm run test:integration
 ```
 
-The tests create isolated UUID-based fixtures and remove them afterward. For maximum CI isolation, use dedicated PostgreSQL and Redis instances.
+With the complete stack running, use `npm run load:test -- all` for the standard k6 matrix and `npm run load:audit` for the persisted-state acceptance gate.
 
-### Option D — load, resilience, and invariant tests
-
-With the complete stack running:
-
-```bash
-npm run load:test -- same-seat
-npm run load:test -- distinct-seats
-npm run load:test -- waiting-room-spike
-npm run load:test -- websocket-storm
-npm run load:test -- duplicate-delivery
-npm run load:test -- resilience
-npm run load:audit
-```
-
-Run every standard scenario with `npm run load:test -- all`. Thresholds and result interpretation are documented in [docs/load-testing.md](docs/load-testing.md).
+See the [complete HTTP purchase walkthrough](docs/demo.md) and the [load and resilience testing guide](docs/load-testing.md) for detailed scenarios and result interpretation.
 
 ## API overview
 
@@ -446,32 +298,17 @@ The provisioned **Live Seat Reservation — Overview** dashboard covers HTTP tra
 
 See [docs/observability.md](docs/observability.md), [docs/runbooks/observability.md](docs/runbooks/observability.md), and [docs/runbooks/incidents.md](docs/runbooks/incidents.md).
 
-## Useful commands
-
-| Command                            | Purpose                                  |
-| ---------------------------------- | ---------------------------------------- |
-| `npm run dev`                      | API with hot reload                      |
-| `npm run dev:worker`               | expiration worker with hot reload        |
-| `npm run dev:outbox-relay`         | outbox relay with hot reload             |
-| `npm run dev:websocket-gateway`    | WebSocket gateway with hot reload        |
-| `npm run dev:admission-controller` | admission controller with hot reload     |
-| `npm run migrate`                  | migrations protected by an advisory lock |
-| `npm run seed`                     | demo event and 3,000 seats               |
-| `npm run check`                    | quality checks, local tests, and build   |
-| `npm run test:integration`         | PostgreSQL and Redis integration suites  |
-| `npm run load:test -- <scenario>`  | k6 scenario and invariant audit          |
-| `npm run load:chaos -- <failure>`  | controlled failure during load           |
-| `npm run load:audit`               | audit persisted PostgreSQL invariants    |
-
 ## Technical documentation
 
+- [Demo guide](docs/demo.md)
 - [Architecture](docs/architecture.md)
 - [Architecture Decision Records](docs/adrs)
 - [Capacity planning and SLOs](docs/capacity-planning.md)
 - [Failure modes](docs/failure-modes.md)
 - [Load testing](docs/load-testing.md)
 - [Load-test results](docs/load-test-results.md)
-- [Short demo](docs/demo.md)
+- [Observability](docs/observability.md)
+- [Incident runbooks](docs/runbooks/incidents.md)
 - [Roadmap](ROADMAP.md)
 
 ## Current limitations

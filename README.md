@@ -1,10 +1,12 @@
 # Live Seat Reservation
 
-A high-demand event seat reservation backend designed to demonstrate how to prevent **overselling** when hundreds of clients compete for the same seat.
+> A production-inspired backend that demonstrates how to reserve and sell seats under heavy concurrency without overselling.
 
-This project goes beyond CRUD. It combines transactional concurrency, idempotency, a distributed waiting room, resilient hold expiration, asynchronous payments, the Transactional Outbox pattern, WebSockets, metrics, traces, and load testing. It is implemented as a **modular monolith running as specialized processes**, with PostgreSQL as the source of truth.
+When 100 clients compete for the same seat, PostgreSQL selects exactly one winner. The system also handles request retries, duplicated and delayed webhooks, expired reservations, lost jobs, process restarts, and gaps in real-time updates.
 
-> Backend portfolio project. There is no frontend: the flows are exercised through HTTP, WebSocket, automated tests, and k6.
+This project goes beyond CRUD to explore transactional concurrency, idempotency, fault recovery, asynchronous processing, and real-time communication. It is implemented as a **modular monolith running as specialized processes**, with PostgreSQL as the source of truth and Redis used for coordination rather than correctness.
+
+> Backend-only project. Its behavior is demonstrated through HTTP, WebSocket, automated tests, SQL invariant audits, and k6 load scenarios.
 
 ## What this project demonstrates
 

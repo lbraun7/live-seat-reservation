@@ -1,5 +1,11 @@
 # Live Seat Reservation
 
+[![CI](https://github.com/lbraun7/live-seat-reservation/actions/workflows/ci.yml/badge.svg)](https://github.com/lbraun7/live-seat-reservation/actions/workflows/ci.yml)
+![Node.js 22](https://img.shields.io/badge/Node.js-22-339933?logo=nodedotjs&logoColor=white)
+![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
+![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
+![Redis 7](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+
 > A production-inspired backend that demonstrates how to reserve and sell seats under heavy concurrency without overselling.
 
 ## The engineering problem
@@ -314,6 +320,10 @@ See [docs/observability.md](docs/observability.md), [docs/runbooks/observability
 - [Observability](docs/observability.md)
 - [Incident runbooks](docs/runbooks/incidents.md)
 - [Roadmap](ROADMAP.md)
+
+## Project status
+
+Feature-complete for its intended portfolio scope. The core reservation, waiting-room, expiration, payment, outbox, real-time, observability, and load-testing flows are implemented and covered by automated or executable evidence. Future work is focused on production integrations and deployment concerns rather than unfinished reservation invariants.
 
 ## Current limitations
 

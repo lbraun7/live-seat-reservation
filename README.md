@@ -164,17 +164,30 @@ A reservation change writes both the new state and its event to `outbox_events` 
 
 The gateway sends `seat.updated`. If versions are not contiguous, it sends `resync.required`, and the client must fetch a fresh HTTP snapshot. WebSocket improves responsiveness but is never the source of truth.
 
-## Core decisions and invariants
+## Architectural decisions and trade-offs
 
-- PostgreSQL decides the winner; Redis does not guarantee reservation correctness.
-- A seat has at most one active hold and can appear in at most one order item.
-- Expiration time comes from the database to avoid clock drift between processes.
-- Retries use idempotency keys; reusing a key with another payload fails.
-- Messages and jobs are treated as potentially duplicated.
-- A crash between outbox publishing and acknowledgment may duplicate an event but cannot lose the persisted event.
-- WebSocket clients recover from inconsistencies through versioned snapshots.
+The design favors explicit consistency and recoverability over the appearance of exactly-once processing.
 
-See [docs/architecture.md](docs/architecture.md), the [ADRs](docs/adrs), and the [threat model](docs/threat-model.md) for more detail.
+| Decision                                                                                         | Why it was chosen                                                                                                 | Accepted trade-off                                                             |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [PostgreSQL is the source of truth](docs/adrs/001-postgresql-source-of-truth.md)                 | Transactions, locks, and constraints keep reservations correct even when Redis is unavailable                     | More contention and connection pressure reach the database                     |
+| [Use a modular monolith with specialized processes](docs/adrs/003-modular-monolith-processes.md) | One codebase and schema keep domain transactions simple while workloads scale independently                       | Processes remain deployment-coupled and share schema evolution                 |
+| [Publish through a Transactional Outbox](docs/adrs/002-transactional-outbox.md)                  | A committed state change cannot be silently separated from its domain event                                       | Delivery is at least once, so duplicates and idempotent consumers are expected |
+| Treat Redis as disposable coordination infrastructure                                            | Waiting-room ordering, delayed jobs, and broadcasts benefit from Redis without making it a correctness dependency | Redis outages reduce availability and real-time behavior until recovery        |
+| Combine delayed expiration jobs with database reconciliation                                     | Fast scheduled releases and eventual recovery both work when individual jobs are lost                             | Two expiration paths must remain idempotent and observable                     |
+| Use versioned WebSocket events with HTTP resynchronization                                       | Gateways stay stateless and clients can detect duplicate or missing updates                                       | Clients must implement snapshot recovery and tolerate temporary staleness      |
+
+### Business invariants
+
+- A seat has at most one active hold and can appear in at most one confirmed order.
+- Only the owning user can confirm or cancel a hold.
+- An expired hold cannot be confirmed or made active again.
+- Confirmation, cancellation, and expiration are atomic terminal transitions.
+- The same idempotency key and payload return the persisted result; another payload is rejected.
+- Duplicate jobs, messages, and webhooks cannot duplicate their business effects.
+- Expiration deadlines use PostgreSQL time to avoid process clock drift.
+
+See the [detailed architecture](docs/architecture.md), [accepted ADRs](docs/adrs), [failure modes](docs/failure-modes.md), and [threat model](docs/threat-model.md) for the complete reasoning.
 
 ## Run with Docker
 

@@ -53,6 +53,23 @@ PASS: reservation invariants hold; oversold_seats=0 active_hold_collisions=0
 
 Detailed k6 output is saved under `load-tests/results/`. The first Docker image build may take longer than a minute; the demo itself uses a 15-second contention window.
 
+## Correctness evidence
+
+The guarantees below are backed by executable tests rather than architecture claims alone.
+
+| Guarantee                                                                      | Mechanism                                                                                                      | Executable proof                                                                                                               |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| One winner for a contested seat                                                | Row locking, conditional state changes, a partial unique active-hold index, and a unique sold-seat constraint  | [100-request PostgreSQL race](tests/integration/reservations-postgres.test.ts) and [SQL invariant audit](load-tests/audit.sql) |
+| Safe request retries                                                           | Persisted idempotency key, request hash, status code, and response body                                        | [Reservation idempotency integration test](tests/integration/reservations-postgres.test.ts)                                    |
+| Confirmation cannot race expiration or cancellation into an invalid state      | Hold locks and conditional terminal transitions inside one transaction                                         | [Concurrent transition tests](tests/integration/reservations-postgres.test.ts)                                                 |
+| Lost, duplicated, or stale expiration jobs remain safe                         | Deterministic BullMQ job IDs, expected expiration timestamps, and PostgreSQL reconciliation with `SKIP LOCKED` | [Expiration recovery tests](tests/integration/hold-expiration-postgres.test.ts)                                                |
+| Duplicate, delayed, and late payment callbacks do not create extra orders      | Signed webhooks, provider-event deduplication, event ordering, and transactional state changes                 | [Checkout and webhook tests](tests/integration/checkout-postgres.test.ts)                                                      |
+| Multiple admission controllers respect one global capacity                     | An atomic Redis Lua script moves sessions between sorted sets                                                  | [Distributed waiting-room tests](tests/integration/waiting-room-redis.test.ts)                                                 |
+| A publish failure cannot erase a committed domain event                        | Transactional Outbox, retry metadata, stable event IDs, and idempotent consumers                               | [Outbox recovery tests](tests/integration/outbox-postgres.test.ts)                                                             |
+| Duplicate or missing real-time updates do not silently corrupt the client view | Monotonic versions, duplicate rejection, and HTTP snapshot resynchronization                                   | [Cross-instance realtime tests](tests/integration/realtime-redis.test.ts)                                                      |
+
+Run the fast quality gate with `npm run check`, the dependency-backed suite with `npm run test:integration`, and the persisted-state acceptance gate with `npm run load:audit`.
+
 ## Architecture
 
 ```mermaid

@@ -5,6 +5,7 @@
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![PostgreSQL 17](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
 ![Redis 7](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > A production-inspired backend that demonstrates how to reserve and sell seats under heavy concurrency without overselling.
 
@@ -331,4 +332,8 @@ This is a backend portfolio project. It uses simplified `x-user-id` authenticati
 
 ## License
 
-There is currently no license file in this repository. Until one is added, the source code should be treated as all rights reserved.
+Distributed under the [MIT License](LICENSE).
+
+## Author
+
+[Lucas Braun](https://www.linkedin.com/in/lucas-braun-20235395/)

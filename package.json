@@ -2,6 +2,11 @@
   "name": "live-seat-reservation",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
+  "author": {
+    "name": "Lucas Braun",
+    "url": "https://www.linkedin.com/in/lucas-braun-20235395/"
+  },
   "description": "Sistema de reserva de assentos para flash sales",
   "type": "module",
   "engines": {

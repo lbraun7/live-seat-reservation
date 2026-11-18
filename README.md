@@ -29,6 +29,30 @@ The system is implemented as a **modular monolith running as specialized process
 - **Data and messaging:** PostgreSQL 17, Redis 7, BullMQ, and Transactional Outbox.
 - **Quality and operations:** Vitest, k6, OpenTelemetry, Prometheus, Grafana, Tempo, and Docker Compose.
 
+## 60-second concurrency demo
+
+With Docker running, start the complete stack:
+
+```bash
+docker compose up --build -d
+```
+
+After the services become healthy, run the portfolio demo:
+
+```bash
+./scripts/demo-concurrency.sh
+```
+
+The script verifies readiness, runs a short k6 scenario with 100 virtual users contending for the same seat, and audits the persisted PostgreSQL state. Conflicting requests are expected; violating a reservation invariant is not.
+
+The final audit must report:
+
+```text
+PASS: reservation invariants hold; oversold_seats=0 active_hold_collisions=0
+```
+
+Detailed k6 output is saved under `load-tests/results/`. The first Docker image build may take longer than a minute; the demo itself uses a 15-second contention window.
+
 ## Architecture
 
 ```mermaid

@@ -72,28 +72,37 @@ Run the fast quality gate with `npm run check`, the dependency-backed suite with
 
 ## Architecture
 
+The project is one codebase with isolated domain modules, deployed as processes that can scale independently. The request path stays small, while expiration, admission, event publication, and WebSocket delivery run outside the API process.
+
 ```mermaid
 flowchart LR
-  Client["HTTP / WS client"] --> API["Fastify API"]
-  Client <--> WS["WebSocket gateway"]
+  Client["HTTP / WebSocket client"] --> API["Fastify API"]
   API --> PG[("PostgreSQL\nsource of truth")]
-  API --> Redis[("Redis\nqueue and coordination")]
-  API --> Queue["BullMQ"]
-  Queue --> Worker["Expiration worker"]
-  Worker --> PG
-  Reconciler["Reconciler"] --> PG
+  API --> Redis[("Redis\nwaiting room and jobs")]
   Admission["Admission controller"] --> Redis
-  Admission --> PG
-  PG --> Outbox["Outbox relay"]
-  Outbox --> Redis
-  Redis --> WS
-  API & Worker & Admission & Outbox & WS --> Obs["OpenTelemetry / Prometheus"]
-  Obs --> Grafana["Grafana / Tempo"]
+  Redis --> Worker["Expiration worker"]
+  Worker --> PG
+  PG --> Relay["Outbox relay"]
+  Relay -->|Redis Pub/Sub| Gateway["WebSocket gateway"]
+  Gateway --> Client
 ```
 
 ### Why a modular monolith?
 
-The domain remains in a single codebase, with modules isolated by responsibility, while workloads run as processes with different scaling characteristics. The API, worker, relay, gateway, and admission controller can be deployed and scaled independently without introducing the operational overhead of multiple repositories or fully independent services.
+The domain remains cohesive and transactional without the network and deployment overhead of independent microservices. Workloads with different scaling characteristics still run separately: HTTP traffic scales the API, persistent connections scale the gateway, and asynchronous backlogs scale workers and relays.
+
+### Runtime processes
+
+| Process                | Role                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------- |
+| `api`                  | Serves catalog, waiting-room, reservation, checkout, webhook, health, and metrics endpoints |
+| `admission-controller` | Admits queued users in adaptive batches without exceeding active capacity                   |
+| `worker`               | Processes delayed expiration jobs and reconciles expired holds directly from PostgreSQL     |
+| `outbox-relay`         | Publishes committed domain events from PostgreSQL to Redis Pub/Sub                          |
+| `websocket-gateway`    | Broadcasts versioned seat changes and waiting-room updates                                  |
+| `migrate` / `seed`     | Applies the schema and creates deterministic demonstration data                             |
+
+### Code organization
 
 ```text
 src/
@@ -121,16 +130,7 @@ Each module separates the following layers when needed:
 - `infrastructure`: PostgreSQL, Redis, and BullMQ adapters;
 - `transport`: HTTP adapters.
 
-### Processes
-
-| Process                | Responsibility                                              | Scaling unit             |
-| ---------------------- | ----------------------------------------------------------- | ------------------------ |
-| `api`                  | catalog, waiting room, reservations, checkout, and webhooks | HTTP requests            |
-| `websocket-gateway`    | seat broadcasts and waiting-room positions                  | persistent connections   |
-| `worker`               | expiration jobs and reconciliation                          | job backlog and delay    |
-| `outbox-relay`         | publishes persisted events to Redis                         | outbox backlog           |
-| `admission-controller` | admits batches without exceeding capacity                   | queue size and wait time |
-| `migrate` / `seed`     | prepares the schema and demo data                           | one-shot jobs            |
+The detailed component diagram, critical sequences, and scaling notes live in [docs/architecture.md](docs/architecture.md).
 
 ## How it works
 

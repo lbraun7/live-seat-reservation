@@ -35,12 +35,15 @@ export function registerWaitingRoomRoutes(app: FastifyInstance, waitingRoom: Wai
       },
     },
     handler: async (request, reply) =>
-      handle(reply, () =>
-        waitingRoom.join({
-          eventId: request.params.eventId,
-          userId: request.headers['x-user-id'],
-          ip: request.ip,
-        }),
+      handle(
+        reply,
+        () =>
+          waitingRoom.join({
+            eventId: request.params.eventId,
+            userId: request.headers['x-user-id'],
+            ip: request.ip,
+          }),
+        201,
       ),
   });
 
@@ -93,9 +96,13 @@ export function registerWaitingRoomRoutes(app: FastifyInstance, waitingRoom: Wai
   );
 }
 
-async function handle(reply: FastifyReply, operation: () => Promise<unknown>): Promise<unknown> {
+async function handle(
+  reply: FastifyReply,
+  operation: () => Promise<unknown>,
+  successStatus = 200,
+): Promise<unknown> {
   try {
-    return await operation();
+    return await reply.code(successStatus).send(await operation());
   } catch (error) {
     if (error instanceof WaitingRoomError) {
       return reply.code(error.statusCode).send({ code: error.code, message: error.message });

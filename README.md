@@ -51,7 +51,11 @@ The final audit must report:
 PASS: reservation invariants hold; oversold_seats=0 active_hold_collisions=0
 ```
 
-Detailed k6 output is saved under `load-tests/results/`. The first Docker image build may take longer than a minute; the demo itself uses a 15-second contention window.
+![Measured same-seat contention result](docs/assets/concurrency-demo.svg)
+
+The card above records a local run on 2026-11-18: 100 completed iterations, one winning hold, 99 expected conflicts, 100% passing checks, and 48.1 ms p95 HTTP latency. Latency is hardware-dependent; the zero-overselling invariants are the acceptance criteria.
+
+Detailed k6 output is saved under `load-tests/results/`. The first Docker image build may take longer than a minute; the contention demo itself is a bounded one-request wave per virtual user.
 
 ## Correctness evidence
 

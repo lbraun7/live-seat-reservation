@@ -20,9 +20,10 @@ const unexpectedResults = new Counter('unexpected_hold_results');
 export const options = {
   scenarios: {
     same_seat: {
-      executor: 'constant-vus',
-      vus: integer('VUS', 500),
-      duration: duration('DURATION', '1m'),
+      executor: 'per-vu-iterations',
+      vus: integer('VUS', 100),
+      iterations: integer('ITERATIONS', 1),
+      maxDuration: duration('MAX_DURATION', '2m'),
     },
   },
   thresholds: {

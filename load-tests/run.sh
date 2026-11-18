@@ -10,6 +10,18 @@ run_k6() {
   shift
   docker compose run --rm \
     -e RESULTS_DIR=/results \
+    -e RATE="${RATE:-}" \
+    -e DURATION="${DURATION:-}" \
+    -e PRE_ALLOCATED_VUS="${PRE_ALLOCATED_VUS:-}" \
+    -e MAX_VUS="${MAX_VUS:-}" \
+    -e VUS="${VUS:-}" \
+    -e ITERATIONS="${ITERATIONS:-}" \
+    -e MAX_DURATION="${MAX_DURATION:-}" \
+    -e SPIKE_RATE="${SPIKE_RATE:-}" \
+    -e RAMP_DURATION="${RAMP_DURATION:-}" \
+    -e CONNECTION_MS="${CONNECTION_MS:-}" \
+    -e ADMISSION_TIMEOUT_SECONDS="${ADMISSION_TIMEOUT_SECONDS:-}" \
+    -e RESULT_NAME="${RESULT_NAME:-}" \
     "$@" \
     k6 run "/scripts/$script"
 }

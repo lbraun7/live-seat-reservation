@@ -44,7 +44,7 @@ With Docker running, start the complete stack:
 docker compose up --build -d
 ```
 
-After the services become healthy, run the portfolio demo:
+After the services become healthy, run the demo:
 
 ```bash
 ./scripts/demo-concurrency.sh
@@ -321,14 +321,6 @@ See [docs/observability.md](docs/observability.md), [docs/runbooks/observability
 - [Observability](docs/observability.md)
 - [Incident runbooks](docs/runbooks/incidents.md)
 - [Roadmap](ROADMAP.md)
-
-## Project status
-
-Feature-complete for its intended portfolio scope. The core reservation, waiting-room, expiration, payment, outbox, real-time, observability, and load-testing flows are implemented and covered by automated or executable evidence. Future work is focused on production integrations and deployment concerns rather than unfinished reservation invariants.
-
-## Current limitations
-
-This is a backend portfolio project. It uses simplified `x-user-id` authentication, a fake payment provider, one event configured per admission-controller process, and local infrastructure through Docker Compose. A production deployment would additionally require real authentication and authorization, secret management, TLS, edge rate limiting, orchestration, backups, continuous restore tests, and integration with a real payment service provider.
 
 ## License
 
